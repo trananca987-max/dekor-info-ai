@@ -49,8 +49,30 @@ generation_tasks = {}
 async def startup_event():
     print("🚀 Декор Инфо AI Designer API started!")
     print(f"📢 Channel: {os.getenv('CHANNEL_USERNAME')}")
+    # Автоустановка Telegram webhook (локальная машина не имеет доступа к api.telegram.org)
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if bot_token and webhook_url:
+        import asyncio
+        import urllib.request
+        import urllib.parse
 
-@app.get("/")
+        async def _set_webhook():
+            try:
+                data = urllib.parse.urlencode({
+                    "url": webhook_url,
+                    "allowed_updates": '["message", "pre_checkout_query"]',
+                }).encode()
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{bot_token}/setWebhook", data=data)
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    print("📡 Telegram webhook:", resp.read().decode()[:200])
+            except Exception as e:
+                print("⚠️ Webhook setup failed:", e)
+
+        asyncio.create_task(_set_webhook())
+
+@app.get("/api/info")
 async def root():
     return {
         "message": "Декор Инфо AI Designer API",

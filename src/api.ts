@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { User, Generation } from './types'
 
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// В продакшене фронт раздаёт тот же бэкенд → пустой baseURL = same-origin запросы
+export const API_URL = import.meta.env.VITE_API_URL || ''
 
 const api = axios.create({
   baseURL: API_URL,
