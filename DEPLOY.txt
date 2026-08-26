@@ -1,0 +1,16 @@
+# 1) Логин (вставь свой токен из railway.app → Account → Tokens):
+export RAILWAY_TOKEN="твой_токен_сюда"
+
+# 2) Привязка к проекту:
+cd /Users/andrey/dekor-info-ai-designer && railway login --token $RAILWAY_TOKEN
+railway status
+
+# 3) Переменные окружения:
+railway variables --set "ANYMODEL_API_KEY=sk-dc9d4b7df36ba555-gnvce4-f6994f39"
+railway variables --set "TELEGRAM_BOT_TOKEN=8210444083:AAEUSCcyFbL4RXfrGWHLrkJPYG2xAVzatE0"
+
+# 4) Деплой свежего кода:
+railway up
+
+# 5) Проверка логов:
+railway logs

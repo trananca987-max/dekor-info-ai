@@ -1,0 +1,10 @@
+node_modules/
+dist/
+uploads/
+results/
+__pycache__/
+*.pyc
+*.db
+.env
+app.db
+dekorinfo.db
