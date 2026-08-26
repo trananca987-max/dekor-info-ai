@@ -6,7 +6,11 @@ from .models import Base
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dekorinfo.db")
+# DATA_DIR: persistent volume mount (Railway /data). Local dev: current dir.
+DATA_DIR = os.getenv("DATA_DIR", ".")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(DATA_DIR, 'dekorinfo.db')}")
 
 # Create engine
 engine = create_engine(

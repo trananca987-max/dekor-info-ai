@@ -33,14 +33,19 @@ ai_gen = AIGenerator()
 # Initialize database
 init_db()
 
+# Persistent data dir (Railway volume /data; local dev: current dir)
+DATA_DIR = os.getenv("DATA_DIR", ".")
+UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
+RESULTS_DIR = os.path.join(DATA_DIR, "results")
+
 # Create uploads/results directories
-os.makedirs("uploads", exist_ok=True)
-os.makedirs("results", exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Serve generation results statically
 from fastapi.staticfiles import StaticFiles
-app.mount("/results", StaticFiles(directory="results"), name="results")
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")  # для шторки До/После
+app.mount("/results", StaticFiles(directory=RESULTS_DIR), name="results")
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")  # для шторки До/После
 
 # Store generation tasks
 generation_tasks = {}
@@ -151,7 +156,7 @@ async def upload_photo(
     # Save file
     timestamp = int(datetime.now().timestamp())
     filename = f"{user_id}_{timestamp}_{file.filename}"
-    file_path = os.path.join("uploads", filename)
+    file_path = os.path.join(UPLOADS_DIR, filename)
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -445,7 +450,7 @@ async def generate_design(
     task_id = f"{user_id}_{generation.id}"
     
     # Get file path (может быть _opt версией)
-    file_path = os.path.join("uploads", file_id)
+    file_path = os.path.join(UPLOADS_DIR, file_id)
     if not os.path.exists(file_path):
         opt_path = file_path.rsplit(".", 1)[0] + "_opt.jpg"
         if os.path.exists(opt_path):
@@ -495,7 +500,7 @@ async def enhance_hd(generation_id: int, request: dict,
     db.commit()
     
     result_file = src.result_image_url.replace("/results/", "")
-    result_path = os.path.join("results", result_file)
+    result_path = os.path.join(RESULTS_DIR, result_file)
     if not os.path.exists(result_path):
         user.stars += HD_COST
         db.commit()
@@ -549,7 +554,7 @@ async def make_variations(generation_id: int, request: dict,
     db.commit()
     
     original_file = src.original_image_url
-    original_path = os.path.join("uploads", original_file)
+    original_path = os.path.join(UPLOADS_DIR, original_file)
     if not os.path.exists(original_path):
         alt = original_path.rsplit(".", 1)[0] + "_opt.jpg"
         if os.path.exists(alt):

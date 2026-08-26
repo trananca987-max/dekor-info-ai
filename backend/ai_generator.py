@@ -26,6 +26,10 @@ load_dotenv()
 ANYMODEL_KEY = os.getenv("ANYMODEL_API_KEY", "")
 ANYMODEL_BASE = "https://anymodel.org"
 
+# Persistent data dir (Railway volume /data; local dev: current dir)
+DATA_DIR = os.getenv("DATA_DIR", ".")
+RESULTS_DIR = os.path.join(DATA_DIR, "results")
+
 # Модели и качество по тарифам (юнит-экономика: серия 6d)
 TIER_ENGINE = {
     # tier: (model, mode, quality_param)
@@ -160,9 +164,9 @@ class AnyModelGenerator:
         else:
             result = self._images_api(prompt, extra, ref_bytes=img_bytes, model=model)
 
-        os.makedirs("results", exist_ok=True)
+        os.makedirs(RESULTS_DIR, exist_ok=True)
         out_path = os.path.join(
-            "results",
+            RESULTS_DIR,
             os.path.basename(image_path).rsplit(".", 1)[0] + f"_result_{int(time.time())}.jpg",
         )
         with open(out_path, "wb") as f:
