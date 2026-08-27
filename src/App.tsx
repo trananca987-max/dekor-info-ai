@@ -12,13 +12,20 @@ function App() {
   const [isSubscribed, setIsSubscribed] = useState(false)
 
   useEffect(() => {
-    // Initialize Telegram Web App
+    // Initialize Telegram Web App (SPEC 1.5: шапка/фон под тему, без синей шапки)
     WebApp.ready()
     WebApp.expand()
     
     // Set theme colors
-    WebApp.setHeaderColor('#2196F3')
-    WebApp.setBackgroundColor('#ffffff')
+    const isDark = WebApp.colorScheme === 'dark'
+    const bg = isDark ? '#0D0E11' : '#FFFFFF'
+    try {
+      WebApp.setHeaderColor(bg)
+      WebApp.setBackgroundColor(bg)
+      // Отключаем вертикальные свайпы, чтобы приложение не закрывалось жестом
+      const tgAny = WebApp as unknown as { disableVerticalSwipes?: () => void }
+      tgAny.disableVerticalSwipes?.()
+    } catch { /* старые версии Telegram */ }
     
     initUser()
   }, [])
@@ -103,9 +110,16 @@ function App() {
   }
 
   if (loading) {
+    // SPEC 1.4: skeleton вместо мигающего экрана
     return (
-      <div className="loading">
-        <div className="spinner"></div>
+      <div className="screen">
+        <div className="body">
+          <div className="skel" style={{ width: '55%', height: 24, marginBottom: 12 }} />
+          <div className="skel" style={{ width: '80%', height: 14, marginBottom: 22 }} />
+          <div className="skel" style={{ height: 120, borderRadius: 18, marginBottom: 12 }} />
+          <div className="skel" style={{ height: 120, borderRadius: 18, marginBottom: 12 }} />
+          <div className="skel" style={{ height: 48, borderRadius: 14, marginTop: 18 }} />
+        </div>
       </div>
     )
   }

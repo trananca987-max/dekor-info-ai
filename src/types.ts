@@ -2,12 +2,17 @@ export interface User {
   telegram_id: number;
   username?: string;
   first_name: string;
-  stars: number;
-  free_generations: number;
-  tier?: string;            // legacy
+  credits: number;            // внутренняя валюта (SPEC 1.3)
+  free_generations: number;   // стартовый бонус: 2 бесплатных дизайна Medium
+  tier?: string;              // free | pro | premium
   tier_expires_at?: string;
+  quota_medium?: number;
+  quota_low?: number;
+  quota_hd?: number;
   is_subscribed: boolean;
   created_at: string;
+  // legacy
+  stars?: number;
 }
 
 export interface Generation {
@@ -17,8 +22,10 @@ export interface Generation {
   category: 'interior' | 'outdoor';
   original_image_url: string;
   result_image_url: string;
-  cost_stars: number;
+  preview_url?: string;       // webp 400×300 (SPEC 1.2)
+  cost_stars: number;         // стоимость в кредитах (legacy-имя поля)
   kind?: string;      // design | enhance_hd | variations
+  quality?: string;   // low | medium | hd
   parent_id?: number;
   created_at: string;
 }

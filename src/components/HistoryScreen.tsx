@@ -1,12 +1,21 @@
 import { useState, useEffect } from 'react'
 import WebApp from '@twa-dev/sdk'
 import { User, Generation } from '../types'
-import { getUserGenerations } from '../api'
+import { getUserGenerations, API_URL } from '../api'
 import { getStyleById } from '../config/styles'
 
 interface Props {
   user: User
   onBack: () => void
+}
+
+// SPEC 2.6: даты без секунд — «Сегодня, 17:39», «12 марта, 09:14»
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  const now = new Date()
+  const hm = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  if (d.toDateString() === now.toDateString()) return `Сегодня, ${hm}`
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) + `, ${hm}`
 }
 
 export default function HistoryScreen({ user, onBack }: Props) {
@@ -109,13 +118,22 @@ export default function HistoryScreen({ user, onBack }: Props) {
                       overflow: 'hidden'
                     }}
                   >
+                    {/* SPEC 1.2: превью webp + fallback-плейсхолдер вместо «?» */}
                     <img 
-                      src={generation.result_image_url}
+                      src={`${API_URL}${generation.preview_url || generation.result_image_url}`}
                       alt={style?.name || 'Result'}
                       style={{ 
                         width: '100%',
                         height: '180px',
                         objectFit: 'cover'
+                      }}
+                      onError={(e) => {
+                        const img = e.target as HTMLImageElement
+                        const ph = document.createElement('div')
+                        ph.className = 'ph'
+                        ph.style.height = '180px'
+                        ph.textContent = style?.name || 'Дизайн'
+                        img.replaceWith(ph)
                       }}
                     />
                     <div style={{ padding: '12px' }}>
@@ -134,7 +152,7 @@ export default function HistoryScreen({ user, onBack }: Props) {
                         fontSize: '12px',
                         color: 'var(--tg-theme-hint-color)'
                       }}>
-                        {new Date(generation.created_at).toLocaleString('ru-RU')}
+                        {formatDate(generation.created_at)}
                       </div>
                       {generation.cost_stars > 0 && (
                         <div style={{ 
@@ -142,7 +160,7 @@ export default function HistoryScreen({ user, onBack }: Props) {
                           color: 'var(--primary-color)',
                           marginTop: '4px'
                         }}>
-                          ⭐ {generation.cost_stars} Stars
+                          {generation.cost_stars} кредитов
                         </div>
                       )}
                     </div>

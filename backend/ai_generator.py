@@ -30,10 +30,11 @@ ANYMODEL_BASE = "https://anymodel.org"
 DATA_DIR = os.getenv("DATA_DIR", ".")
 RESULTS_DIR = os.path.join(DATA_DIR, "results")
 
-# Модели и качество по тарифам (юнит-экономика: серия 6d)
+# Модели и качество по тарифам (серия 6d + SPEC_decor_ai 5)
 TIER_ENGINE = {
     # tier: (model, mode, quality_param)
     "pro":     ("ag/gemini-3.1-flash-image", "chat", {"reasoning_effort": "low"}),
+    "free_low": ("ag/gemini-3.1-flash-image", "chat", {"reasoning_effort": "low"}),  # черновик + вотермарка
     "premium": ("ag/gemini-3.1-flash-image", "chat", {"reasoning_effort": "medium"}),
     "premium_pro": ("cx/gpt-image-2", "images", {"quality": "low"}),
 }
@@ -124,6 +125,71 @@ class AnyModelGenerator:
             raw = r.read()
         return self._parse_image_response(raw)
 
+    def _apply_watermark(self, image_bytes: bytes) -> bytes:
+        """Вотермарка для черновиков (Low) — SPEC 4: бесплатные черновики идут с меткой."""
+        try:
+            from PIL import Image, ImageDraw
+            import io
+            im = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+            w, h = im.size
+            overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
+            d = ImageDraw.Draw(overlay)
+            text = "Декор Инфо AI · черновик"
+            # Подбираем размер шрифта под ширину
+            font = None
+            try:
+                from PIL import ImageFont
+                for size in (max(16, w // 22), max(14, w // 26), 14):
+                    try:
+                        font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", size)
+                        break
+                    except Exception:
+                        font = ImageFont.load_default()
+            except Exception:
+                pass
+            try:
+                bbox = d.textbbox((0, 0), text, font=font)
+                tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            except Exception:
+                tw, th = len(text) * 8, 16
+            pad = 10
+            x0, y0 = w - tw - pad * 2, h - th - pad * 2
+            d.rounded_rectangle([x0, y0, x0 + tw + pad * 2, y0 + th + pad * 2],
+                                radius=8, fill=(0, 0, 0, 120))
+            d.text((x0 + pad, y0 + pad), text, font=font, fill=(255, 255, 255, 210))
+            out = Image.alpha_composite(im, overlay).convert("RGB")
+            buf = io.BytesIO()
+            out.save(buf, "JPEG", quality=85)
+            return buf.getvalue()
+        except Exception as e:
+            print(f"Watermark error: {e}")
+            return image_bytes
+
+    def make_preview(self, result_path: str) -> str:
+        """Превью 400×300 webp для истории/главной (SPEC 1.2). Возвращает путь или ''."""
+        try:
+            from PIL import Image
+            base = os.path.basename(result_path).rsplit(".", 1)[0]
+            prev_path = os.path.join(RESULTS_DIR, f"{base}_prev.webp")
+            im = Image.open(result_path).convert("RGB")
+            # cover-crop до 4:3, затем ресайз
+            w, h = im.size
+            target_ratio = 4 / 3
+            if w / h > target_ratio:
+                new_w = int(h * target_ratio)
+                left = (w - new_w) // 2
+                im = im.crop((left, 0, left + new_w, h))
+            else:
+                new_h = int(w / target_ratio)
+                top = (h - new_h) // 2
+                im = im.crop((0, top, w, top + new_h))
+            im = im.resize((400, 300), Image.Resampling.LANCZOS)
+            im.save(prev_path, "WEBP", quality=80)
+            return prev_path
+        except Exception as e:
+            print(f"Preview error: {e}")
+            return ""
+
     def generate(self, image_path: str, style_prompt: str,
                  tier: str = "pro", mode: str = "style") -> tuple[str, float]:
         """
@@ -163,6 +229,10 @@ class AnyModelGenerator:
             result = self._img2img_chat(img_bytes, prompt, extra)
         else:
             result = self._images_api(prompt, extra, ref_bytes=img_bytes, model=model)
+
+        # Черновик (free_low) — вотермарка (SPEC 4)
+        if tier == "free_low":
+            result = self._apply_watermark(result)
 
         os.makedirs(RESULTS_DIR, exist_ok=True)
         out_path = os.path.join(

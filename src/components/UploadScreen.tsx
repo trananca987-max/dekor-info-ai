@@ -7,7 +7,7 @@ import {
   API_URL, DESIGN_COST, HD_COST, VARIATIONS_COST,
 } from '../api'
 import BeforeAfter from './BeforeAfter'
-import { buyPack, PACKS, type PackId } from '../api'
+import { buyPack, PACKS, PACK_ORDER } from '../api'
 
 interface Props {
   user: User
@@ -32,6 +32,7 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
   const [originalUrl, setOriginalUrl] = useState('') // для шторки До/После
   const [generationId, setGenerationId] = useState<number | null>(null)
   const [chargeLabel, setChargeLabel] = useState('')
+  const [resultQuality, setResultQuality] = useState<'low' | 'medium' | 'hd'>('medium')
   const [progress, setProgress] = useState(8)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -100,8 +101,13 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
         mode: keepFurniture ? mode.id : mode.id,
       })
       setGenerationId(parseInt(res.task_id.split('_')[1], 10))
-      setChargeLabel(res.charge === 'free' ? 'Бесплатно' : `−${DESIGN_COST}★`)
-      onUserUpdate({ ...user, stars: res.stars_left, free_generations: res.free_left })
+      setResultQuality(res.quality || 'medium')
+      setChargeLabel(
+        res.charge === 'free' ? 'Бесплатно' :
+        res.charge === 'free_draft' ? 'Черновик · бесплатно' :
+        res.charge === 'quota' ? 'Из подписки' : `−${DESIGN_COST} кредитов`
+      )
+      onUserUpdate({ ...user, credits: res.credits_left, free_generations: res.free_left })
       pollTask(res.task_id, (url) => { setResultUrl(url); setStep('result') })
     } catch (err: unknown) {
       const resp = (err as { response?: { status?: number; data?: { detail?: string } } })?.response
@@ -115,9 +121,9 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
     }
   }
 
-  const starsAfter = user.free_generations > 0
-    ? user.stars
-    : Math.max(0, user.stars - DESIGN_COST)
+  const creditsAfter = user.free_generations > 0
+    ? (user.credits || 0)
+    : Math.max(0, (user.credits || 0) - DESIGN_COST)
 
   // ===== STEP: upload =====
   if (step === 'upload') {
@@ -125,7 +131,7 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
       <div className="screen">
         <div className="nav">
           <button className="link" onClick={onBack}>← Назад</button>
-          <span className="bal-nav">{user.stars} ⭐</span>
+          <span className="bal-nav">{user.credits || 0} кредитов</span>
         </div>
         <div className="body">
           <h1 className="screen" style={{ marginTop: 8 }}>Фото комнаты</h1>
@@ -193,7 +199,7 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
       <div className="screen">
         <div className="nav">
           <button className="link" onClick={() => setStep('upload')}>← Назад</button>
-          <span className="bal-nav">{user.stars} ⭐</span>
+          <span className="bal-nav">{user.credits || 0} кредитов</span>
         </div>
         <div className="body">
           <h1 className="screen" style={{ marginTop: 8 }}>Что сделать?</h1>
@@ -221,7 +227,7 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
       <div className="screen">
         <div className="nav">
           <button className="link" onClick={() => setStep('mode')}>← Назад</button>
-          <span className="bal-nav">{user.stars} ⭐</span>
+          <span className="bal-nav">{user.credits || 0} кредитов</span>
         </div>
         <div className="body">
           <h1 className="screen" style={{ marginTop: 8 }}>Где находится помещение?</h1>
@@ -242,12 +248,11 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
   if (step === 'style') {
     const cat = category || 'interior'
     const list = STYLES.filter(s => s.category === cat)
-    const selected = getStyleById(styleId)
     return (
       <div className="screen">
         <div className="nav">
           <button className="link" onClick={() => setStep('upload')}>← Назад</button>
-          <span className="bal-nav">{user.stars} ⭐</span>
+          <span className="bal-nav">{user.credits || 0} кредитов</span>
         </div>
         <div className="body">
           <h1 className="screen" style={{ marginTop: 8 }}>Выберите стиль</h1>
@@ -276,12 +281,12 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
         </div>
         <div className="foot">
           <button className="btn" disabled={!styleId} onClick={() => start(styleId)}>
-            Создать дизайн{selected ? '' : ''}{user.free_generations > 0 ? ' · бесплатно' : ` · ${DESIGN_COST} ⭐`}
+            Создать дизайн{user.free_generations > 0 ? ' · бесплатно' : ` · ${DESIGN_COST} кредитов`}
           </button>
           <div className="tiny" style={{ textAlign: 'center', marginTop: 7 }}>
             {user.free_generations > 0
               ? `Бесплатных осталось: ${user.free_generations}`
-              : `Останется ${starsAfter} ⭐`}
+              : `Останется ${creditsAfter} кредитов`}
           </div>
         </div>
       </div>
@@ -324,16 +329,17 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
     try {
       if (kind === 'hd') {
         const res = await enhanceHd(user.telegram_id, generationId)
-        onUserUpdate({ ...user, stars: res.stars_left })
+        onUserUpdate({ ...user, credits: res.credits_left })
         pollTask(res.task_id, (url) => {
           setResultUrl(url)
+          setResultQuality('hd')
           setGenerationId(parseInt(res.task_id.split('_')[1], 10))
-          setChargeLabel(`HD · −${HD_COST}★`)
+          setChargeLabel(res.cost === 0 ? 'HD · из подписки' : `HD · −${HD_COST} кредитов`)
           setBusy(false)
         })
       } else {
         const res = await makeVariations(user.telegram_id, generationId)
-        onUserUpdate({ ...user, stars: res.stars_left })
+        onUserUpdate({ ...user, credits: res.credits_left })
         let remaining = res.task_ids.length
         let lastUrl = ''
         const checkAll = (url: string) => {
@@ -357,6 +363,37 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
     }
   }
 
+  // SPEC 3.6: черновик (Low) → финальный рендер Medium за 5 кредитов
+  const doFinalRender = async () => {
+    if (!user || !originalUrl || !styleId) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await generateDesign({
+        user_id: user.telegram_id,
+        file_id: originalUrl,
+        style_id: styleId,
+        mode: mode.id,
+      })
+      onUserUpdate({ ...user, credits: res.credits_left, free_generations: res.free_left })
+      setGenerationId(parseInt(res.task_id.split('_')[1], 10))
+      setChargeLabel(`Финальный рендер · −${DESIGN_COST} кредитов`)
+      pollTask(res.task_id, (url) => {
+        setResultUrl(url)
+        setResultQuality(res.quality || 'medium')
+        setBusy(false)
+      })
+    } catch (err: unknown) {
+      const resp = (err as { response?: { status?: number; data?: { detail?: string } } })?.response
+      if (resp?.status === 402) {
+        setNoStars({ need: DESIGN_COST })
+      } else {
+        setError(resp?.data?.detail || 'Не удалось выполнить')
+      }
+      setBusy(false)
+    }
+  }
+
   const handleDownload = async () => {
     try {
       const resp = await fetch(`${API_URL}${resultUrl}`)
@@ -372,7 +409,7 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
     <div className="screen">
       <div className="nav">
         <button className="link" onClick={onBack}>← На главную</button>
-        <span className="bal-nav">{user.stars} ⭐</span>
+        <span className="bal-nav">{user.credits || 0} кредитов</span>
       </div>
       <div className="body">
         {originalUrl && (
@@ -387,27 +424,40 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
           <p className="tiny" style={{ textAlign: 'center', marginBottom: 10 }}>{chargeLabel}</p>
         )}
 
-        <button className="act" disabled={busy} onClick={() => doUpsell('hd')}>
-          <div>
-            <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Улучшить в HD</div>
-            <div className="tiny">Максимум деталей, для печати</div>
-          </div>
-          <span className="p">{HD_COST} ⭐</span>
-        </button>
-        <button className="act" disabled={busy} onClick={() => doUpsell('variations')}>
-          <div>
-            <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Ещё 3 варианта</div>
-            <div className="tiny">Тот же стиль, другая расстановка</div>
-          </div>
-          <span className="p">{VARIATIONS_COST} ⭐</span>
-        </button>
-        <button className="act" disabled title="Скоро: убирайте и меняйте объекты на фото">
-          <div>
-            <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Изменить деталь</div>
-            <div className="tiny">Убрать или заменить объект</div>
-          </div>
-          <span className="p">5 ⭐</span>
-        </button>
+        {/* SPEC 3.6: для черновика (Low) — одна кнопка финального рендера, платные апселлы скрыты */}
+        {resultQuality === 'low' ? (
+          <button className="act" disabled={busy} onClick={doFinalRender}>
+            <div>
+              <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Сделать финальный рендер</div>
+              <div className="tiny">Убрать черновик, полное качество</div>
+            </div>
+            <span className="p">{DESIGN_COST} кредитов</span>
+          </button>
+        ) : (
+          <>
+            <button className="act" disabled={busy} onClick={() => doUpsell('hd')}>
+              <div>
+                <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Улучшить в HD</div>
+                <div className="tiny">Максимум деталей, для печати</div>
+              </div>
+              <span className="p">{HD_COST} кредитов</span>
+            </button>
+            <button className="act" disabled={busy} onClick={() => doUpsell('variations')}>
+              <div>
+                <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Ещё 3 варианта</div>
+                <div className="tiny">Тот же стиль, другая расстановка</div>
+              </div>
+              <span className="p">{VARIATIONS_COST} кредитов</span>
+            </button>
+            <button className="act" disabled title="Скоро: убирайте и меняйте объекты на фото">
+              <div>
+                <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Изменить деталь</div>
+                <div className="tiny">Убрать или заменить объект</div>
+              </div>
+              <span className="p">5 кредитов</span>
+            </button>
+          </>
+        )}
         <button className="act" onClick={handleDownload}>
           <div>
             <div className="t" style={{ fontSize: 13, fontWeight: 600 }}>Список мебели</div>
@@ -433,24 +483,23 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
         </div>
       </div>
 
-      {/* Шторка «Не хватает звёзд» — поверх контекста, сценарий не теряется */}
+      {/* Шторка «Не хватает кредитов» — поверх контекста, сценарий не теряется */}
       {noStars && (
         <div className="overlay" onClick={() => setNoStars(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="bar" />
             <h2 className="card-t" style={{ fontSize: 18, marginBottom: 2 }}>
-              Не хватает {Math.max(0, noStars.need - user.stars)} ⭐
+              Не хватает {Math.max(0, noStars.need - (user.credits || 0))} кредитов
             </h2>
-            <p className="sub" style={{ marginBottom: 14 }}>Звёзды не сгорают</p>
+            <p className="sub" style={{ marginBottom: 14 }}>Купленные кредиты не сгорают</p>
 
-            {(['stars50', 'stars150', 'sub300'] as PackId[]).map((pid) => {
+            {PACK_ORDER.map((pid) => {
               const p = PACKS[pid]
               return (
-                <div key={pid} className={`pack ${pid === 'sub300' ? 'best' : ''}`}>
-                  {(pid === 'stars150') && <span className="badge">−20%</span>}
-                  {pid === 'sub300' && <span className="badge">выгоднее всего</span>}
-                  <div className="pr"><b>{p.title}</b><span>{p.desc.split(',')[0]}</span></div>
-                  <div className="tiny">{pid === 'sub300' ? 'Приоритетная очередь, остаток переносится' : p.desc}</div>
+                <div key={pid} className={`pack ${pid === 'sub_pro' ? 'best' : ''}`}>
+                  {p.badge && <span className="badge">{p.badge}</span>}
+                  <div className="pr"><b>{p.title}</b><span>{p.kind === 'pack' ? `${p.credits} кредитов` : ''}</span></div>
+                  <div className="tiny">{p.desc}</div>
                   <button className="btn sm" style={{ marginTop: 10 }}
                     onClick={async () => {
                       try {
@@ -463,7 +512,7 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
                         })
                       } catch { tg?.showAlert?.('Не удалось создать счёт') }
                     }}>
-                    {pid === 'sub300' ? `Оформить за ${p.price} ⭐` : `Купить ${p.title.replace(' звёзд −20%', '')} за ${p.price} ⭐`}
+                    Купить за {p.price} ⭐
                   </button>
                 </div>
               )
@@ -472,10 +521,10 @@ export default function UploadScreen({ user, category, onBack, onUserUpdate }: P
             <button className="btn ghost sm"
               onClick={() => {
                 setNoStars(null)
-                navigator.clipboard?.writeText('https://t.me/dekor_info_ai_bot?start=ref')
-                tg?.showAlert?.('Ссылка-приглашение скопирована. +30★ после первой оплаты друга')
+                navigator.clipboard?.writeText(`https://t.me/dekor_info_ai_bot?start=ref_${user.telegram_id}`)
+                tg?.showAlert?.('Ссылка-приглашение скопирована. +10 кредитов после первой генерации друга')
               }}>
-              Пригласить друга: +30★ вам и другу
+              Пригласить друга: +10 кредитов
             </button>
           </div>
         </div>

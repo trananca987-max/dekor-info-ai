@@ -9,7 +9,7 @@ import json
 import asyncio
 from dotenv import load_dotenv
 
-from .database import get_db, init_db
+from .database import get_db, init_db, SessionLocal, engine
 from .models import User, Generation, Payment
 from .ai_generator import AIGenerator
 from .telegram_helper import check_subscription, send_message, create_invoice_link, bot
@@ -54,6 +54,53 @@ generation_tasks = {}
 async def startup_event():
     print("🚀 Декор Инфо AI Designer API started!")
     print(f"📢 Channel: {os.getenv('CHANNEL_USERNAME')}")
+    # Лёгкая миграция схемы (SQLite ALTER TABLE ADD COLUMN для недостающих колонок)
+    try:
+        from sqlalchemy import inspect, text
+        insp = inspect(engine)
+        want_users = {
+            "credits": "INTEGER DEFAULT 0",
+            "starter_bonus_granted_at": "DATETIME",
+            "quota_medium": "INTEGER DEFAULT 0",
+            "quota_low": "INTEGER DEFAULT 0",
+            "quota_hd": "INTEGER DEFAULT 0",
+            "daily_free_used": "INTEGER DEFAULT 0",
+            "daily_free_date": "VARCHAR",
+            "monthly_free_used": "INTEGER DEFAULT 0",
+            "monthly_free_month": "VARCHAR",
+            "referred_by": "BIGINT",
+        }
+        want_gens = {
+            "preview_url": "VARCHAR",
+            "quality": "VARCHAR DEFAULT 'medium'",
+        }
+        with engine.begin() as conn:
+            have_users = {c["name"] for c in insp.get_columns("users")}
+            for col, typ in want_users.items():
+                if col not in have_users:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {typ}"))
+                    print(f"🔧 ALTER users ADD {col}")
+            have_gens = {c["name"] for c in insp.get_columns("generations")}
+            for col, typ in want_gens.items():
+                if col not in have_gens:
+                    conn.execute(text(f"ALTER TABLE generations ADD COLUMN {col} {typ}"))
+                    print(f"🔧 ALTER generations ADD {col}")
+    except Exception as e:
+        print(f"⚠️ Schema migration skipped: {e}")
+    # Миграция БД (SPEC 1.3): старая валюта stars → внутренняя credits (1:1), один раз
+    try:
+        db = SessionLocal()
+        migrated = 0
+        for u in db.query(User).filter(User.stars > 0).all():
+            u.credits = (u.credits or 0) + u.stars
+            u.stars = 0
+            migrated += 1
+        if migrated:
+            db.commit()
+            print(f"💱 Миграция валют: {migrated} юзеров stars→credits")
+        db.close()
+    except Exception as e:
+        print(f"⚠️ Currency migration skipped: {e}")
     # Автоустановка Telegram webhook (локальная машина не имеет доступа к api.telegram.org)
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     webhook_url = os.getenv("WEBHOOK_URL")
@@ -124,14 +171,25 @@ async def create_user(request: dict, db: Session = Depends(get_db)):
     if existing_user:
         return existing_user
     
-    # Create new user
+    # Create new user (SPEC 4: стартовый бонус = 2 бесплатных дизайна Medium)
     user = User(
         telegram_id=telegram_id,
         username=username,
         first_name=first_name,
+        credits=0,
+        free_generations=STARTER_FREE_DESIGNS,
         tier="free",
-        is_subscribed=False
+        is_subscribed=False,
     )
+    # Реферальный код: ?start=ref_<telegram_id> (SPEC 4)
+    ref = request.get("ref")
+    if ref:
+        try:
+            ref_id = int(str(ref).replace("ref_", ""))
+            if ref_id != telegram_id:
+                user.referred_by = ref_id
+        except (ValueError, TypeError):
+            pass
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -316,17 +374,45 @@ async def process_generation(task_id: str, file_path: str, style_prompt: str,
         result_filename = os.path.basename(result_path)
         result_url = f"/results/{result_filename}"
         
+        # Превью 400×300 webp для истории/главной (SPEC 1.2)
+        preview_url = None
+        try:
+            prev_path = ai_gen.make_preview(result_path)
+            if prev_path:
+                preview_url = f"/results/{os.path.basename(prev_path)}"
+        except Exception as e:
+            print(f"Preview generation failed: {e}")
+        
         # Update database
         generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
         if generation:
             generation.result_image_url = result_url
+            generation.preview_url = preview_url
             generation.processing_time = processing_time
             generation.status = "completed"
             db_session.commit()
+            # Реферальный бонус (SPEC 4): +10 кредитов пригласившему после ПЕРВОЙ генерации друга
+            try:
+                gen_user = db_session.query(User).filter(User.telegram_id == generation.user_id).first()
+                if gen_user and gen_user.referred_by:
+                    first_gen_count = db_session.query(Generation).filter(
+                        Generation.user_id == gen_user.telegram_id,
+                        Generation.status == "completed",
+                    ).count()
+                    if first_gen_count == 1:
+                        referrer = db_session.query(User).filter(
+                            User.telegram_id == gen_user.referred_by).first()
+                        if referrer:
+                            referrer.credits = (referrer.credits or 0) + BONUS_REWARDS["invite_friend"]
+                            db_session.commit()
+                            print(f"🎁 Реферальный бонус +{BONUS_REWARDS['invite_friend']} кредитов → {referrer.telegram_id}")
+            except Exception as e:
+                print(f"Referral bonus error: {e}")
         
         generation_tasks[task_id] = {
             "status": "completed",
-            "result_url": result_url
+            "result_url": result_url,
+            "preview_url": preview_url,
         }
         
     except Exception as e:
@@ -336,57 +422,165 @@ async def process_generation(task_id: str, file_path: str, style_prompt: str,
             "error": str(e)
         }
         
-        # Update database
+        # Update database + возврат списания (SPEC 4: за неудачную генерацию +3 кредита)
         generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
         if generation:
             generation.status = "failed"
             generation.error_message = str(e)
+            user = db_session.query(User).filter(User.telegram_id == generation.user_id).first()
+            if user and (generation.cost_stars or 0) > 0:
+                # платная генерация упала: вернуть стоимость + бонус 3 кредита
+                user.credits = (user.credits or 0) + generation.cost_stars + FAILED_GEN_REFUND
             db_session.commit()
 
 
-# === Единая валюта: звёзды (решение Андрея 25.08 по обзору конкурентов) ===
-# Генерация дизайна — 5★ (или бесплатная из free_generations).
-# Апселлы на экране результата (там, где эмоция максимальна):
-HD_COST = 15        # «Улучшить детали в HD»
-VARIATIONS_COST = 10  # «Ещё 3 варианта этого стиля» (за тройку)
-EDIT_OBJECT_COST = 5  # «Убрать/заменить объект» (заготовка под будущий редактор)
-DESIGN_COST = 5     # базовая генерация дизайна
+# === Экономика по SPEC_decor_ai (28.08) + правка Андрея: стартовый бонус = 2 бесплатных дизайна ===
+# Валюты: ⭐ — внешняя (платят), кредиты — внутренняя (пользуются). Слово «звёзды» — только на экране оплаты.
+DESIGN_COST = 5          # базовая генерация Medium — 5 кредитов
+HD_COST = 15             # «Улучшить в HD» (GPT Image 2) — 15 кредитов
+VARIATIONS_COST = 10     # «Ещё 3 варианта» (Medium ×3) — 10 кредитов
+EDIT_OBJECT_COST = 5     # «Изменить деталь» — 5 кредитов
+FINAL_RENDER_COST = 5    # черновик (Low) → финальный рендер (Medium) — 5 кредитов
 
-# Пакеты звёзд: мелкий для пробы / средний с выгодой / подписка 300★/мес
-STAR_PACKS = {
-    "stars50":  {"stars": 50,  "price": 50,  "title": "⭐️ 50 звёзд", "desc": "Попробовать: ~10 дизайнов"},
-    "stars150": {"stars": 150, "price": 120, "title": "⭐️ 150 звёзд −20%", "desc": "~30 дизайнов, лучшая цена"},
-    "sub300":   {"stars": 300, "price": 250, "title": "🚀 Подписка 300★/мес", "desc": "60 дизайнов + приоритетная очередь, не сгорает"},
+# Бесплатные лимиты (SPEC 4): первые 2 дизайна Medium без вотермарки (решение Андрея),
+# далее 2 черновика Low в день с вотермаркой, потолок 30/мес, аккаунты <7 дней — 1/день.
+STARTER_FREE_DESIGNS = 2
+DAILY_FREE_LIMIT = 2
+DAILY_FREE_LIMIT_NEW_ACCOUNT = 1   # возраст аккаунта < 7 дней
+MONTHLY_FREE_CAP = 30
+
+# Пакеты и подписки (SPEC 4): цена в ⭐, начисление в кредитах
+PACKS = {
+    "pack_s":      {"credits": 60,  "price": 60,  "title": "60 кредитов",
+                    "desc": "12 дизайнов Medium", "badge": None, "kind": "pack"},
+    "pack_m":      {"credits": 200, "price": 160, "title": "200 кредитов −20%",
+                    "desc": "40 дизайнов Medium", "badge": "Выгодно", "kind": "pack"},
+    "sub_pro":     {"credits": 0,   "price": 149, "title": "PRO · 149 ⭐/мес",
+                    "desc": "40 Medium + 200 черновиков Low", "badge": "Популярный", "kind": "sub",
+                    "quota": {"medium": 40, "low": 200, "hd": 0}},
+    "sub_premium": {"credits": 0,   "price": 299, "title": "PREMIUM · 299 ⭐/мес",
+                    "desc": "20 HD + 50 Medium + 250 Low", "badge": "Лучшая цена за дизайн", "kind": "sub",
+                    "quota": {"medium": 50, "low": 250, "hd": 20}},
 }
+PACK_ORDER = ["pack_s", "pack_m", "sub_pro", "sub_premium"]
 
-# Бонусы за действия (рост удержания)
+# Бонусы (SPEC 4): друг +10 кредитов после первой генерации приглашённого (макс 5/мес),
+# канал +5 разово, возврат при неудачной генерации.
 BONUS_REWARDS = {
-    "invite_friend": 30,   # пригласил друга — +30★
-    "subscribe_channel": 20,  # подписался на канал — +20★
-    "return_week": 10,     # вернулся через неделю — +10★
+    "invite_friend": 10,
+    "subscribe_channel": 5,
 }
+FRIEND_BONUS_MONTHLY_CAP = 5
+FAILED_GEN_REFUND = 3
 
 
-def _charge_for_design(user) -> str:
-    """Списывает оплату за дизайн. Возвращает 'free' или 'stars'. Бросает 402 если нечем платить."""
+def _today_str() -> str:
+    from datetime import date
+    return date.today().isoformat()
+
+
+def _month_str() -> str:
+    from datetime import date
+    return date.today().strftime("%Y-%m")
+
+
+def _account_age_days(user) -> int:
+    if not user.created_at:
+        return 999
+    try:
+        return (datetime.utcnow() - user.created_at.replace(tzinfo=None)).days
+    except Exception:
+        return 999
+
+
+def _daily_free_left(user) -> int:
+    """Сколько бесплатных черновиков осталось сегодня."""
+    limit = DAILY_FREE_LIMIT if _account_age_days(user) >= 7 else DAILY_FREE_LIMIT_NEW_ACCOUNT
+    if user.daily_free_date != _today_str():
+        return limit
+    return max(0, limit - (user.daily_free_used or 0))
+
+
+def _monthly_free_left(user) -> int:
+    if user.monthly_free_month != _month_str():
+        return MONTHLY_FREE_CAP
+    return max(0, MONTHLY_FREE_CAP - (user.monthly_free_used or 0))
+
+
+def _use_daily_free(user):
+    if user.daily_free_date != _today_str():
+        user.daily_free_date = _today_str()
+        user.daily_free_used = 0
+    user.daily_free_used = (user.daily_free_used or 0) + 1
+    if user.monthly_free_month != _month_str():
+        user.monthly_free_month = _month_str()
+        user.monthly_free_used = 0
+    user.monthly_free_used = (user.monthly_free_used or 0) + 1
+
+
+def _sub_active(user) -> bool:
+    if user.tier in ("pro", "premium") and user.tier_expires_at:
+        try:
+            exp = user.tier_expires_at.replace(tzinfo=None) if user.tier_expires_at.tzinfo else user.tier_expires_at
+            return exp > datetime.utcnow()
+        except Exception:
+            return False
+    return False
+
+
+def _charge_for_design(user) -> tuple[str, str]:
+    """
+    Списывает оплату за дизайн. Возвращает (charge_type, engine_tier).
+    charge_type: 'free' (стартовые 2 Medium) | 'free_draft' (дневной Low-черновик)
+               | 'quota' (из подписки) | 'credits' (5 кредитов, Medium).
+    Маршрутизация моделей — SPEC 5. Бросает 402, если платить нечем.
+    """
+    # 1) Стартовый бонус: 2 бесплатных дизайна Medium без вотермарки (решение Андрея)
     if user.free_generations and user.free_generations > 0:
         user.free_generations -= 1
-        return "free"
-    if user.stars >= DESIGN_COST:
-        user.stars -= DESIGN_COST
-        return "stars"
+        if not user.starter_bonus_granted_at:
+            user.starter_bonus_granted_at = datetime.utcnow()
+        return "free", "premium"  # Medium
+
+    # 2) Квота подписки: сначала Medium, потом Low-черновики
+    if _sub_active(user):
+        if (user.quota_medium or 0) > 0:
+            user.quota_medium -= 1
+            return "quota", "premium"  # Medium
+        if (user.quota_low or 0) > 0:
+            user.quota_low -= 1
+            return "quota", "free_low"  # Low + вотермарка
+
+    # 3) Ежедневные бесплатные черновики Low (2/день, потолок 30/мес)
+    if _daily_free_left(user) > 0 and _monthly_free_left(user) > 0:
+        _use_daily_free(user)
+        return "free_draft", "free_low"  # Low + вотермарка
+
+    # 4) Кредиты: 5 кредитов = Medium
+    if (user.credits or 0) >= DESIGN_COST:
+        user.credits -= DESIGN_COST
+        return "credits", "premium"  # Medium
+
     raise HTTPException(
         status_code=402,
-        detail="Не хватает звёзд. Первые 2 генерации бесплатны — пополните баланс в разделе «Пакеты»"
+        detail="Не хватает кредитов. Пополните баланс — пакеты от 60 ⭐"
     )
 
 
-def _refund_design(user, charge_type: str):
+def _refund_design(user, charge_type: str, engine_tier: str):
     """Возврат списания при ошибке запуска."""
     if charge_type == "free":
-        user.free_generations += 1
+        user.free_generations = (user.free_generations or 0) + 1
+    elif charge_type == "free_draft":
+        user.daily_free_used = max(0, (user.daily_free_used or 1) - 1)
+        user.monthly_free_used = max(0, (user.monthly_free_used or 1) - 1)
+    elif charge_type == "quota":
+        if engine_tier == "free_low":
+            user.quota_low = (user.quota_low or 0) + 1
+        else:
+            user.quota_medium = (user.quota_medium or 0) + 1
     else:
-        user.stars += DESIGN_COST
+        user.credits = (user.credits or 0) + DESIGN_COST
 
 
 def _today_count(db, user_id: int) -> int:
@@ -405,7 +599,7 @@ async def generate_design(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """Start AI design generation. Одна валюта: free (2 новичку) или 5★."""
+    """Start AI design generation. SPEC 5: free (2 Medium новичку) / free_draft (Low) / quota / credits."""
     user_id = request.get("user_id")
     file_id = request.get("file_id")
     style_id = request.get("style_id")
@@ -426,11 +620,9 @@ async def generate_design(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Оплата: сначала бесплатные, потом звёзды
-    charge_type = _charge_for_design(user)
+    # Оплата и маршрутизация модели (SPEC 5)
+    charge_type, engine_tier = _charge_for_design(user)
     db.commit()
-    
-    engine_tier = "pro"  # единое качество для всех — гейт «купи подороже» убран
     
     # Create generation record
     generation = Generation(
@@ -438,8 +630,9 @@ async def generate_design(
         original_image_url=file_id,
         style_id=style_id,
         category=style["category"],
-        cost_stars=0 if charge_type == "free" else DESIGN_COST,
+        cost_stars=DESIGN_COST if charge_type == "credits" else 0,
         kind="design",
+        quality="low" if engine_tier == "free_low" else "medium",
         status="pending"
     )
     db.add(generation)
@@ -456,7 +649,7 @@ async def generate_design(
         if os.path.exists(opt_path):
             file_path = opt_path
         else:
-            _refund_design(user, charge_type)
+            _refund_design(user, charge_type, engine_tier)
             db.commit()
             raise HTTPException(status_code=404, detail="Uploaded file not found")
     
@@ -475,14 +668,18 @@ async def generate_design(
     return {
         "task_id": task_id,
         "charge": charge_type,
-        "stars_left": user.stars,
-        "free_left": user.free_generations,
+        "quality": "low" if engine_tier == "free_low" else "medium",
+        "credits_left": user.credits or 0,
+        "free_left": user.free_generations or 0,
+        "daily_free_left": _daily_free_left(user),
+        # совместимость со старым фронтом
+        "stars_left": user.credits or 0,
     }
 
 @app.post("/api/enhance-hd/{generation_id}")
 async def enhance_hd(generation_id: int, request: dict,
                      background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Апселл после результата: улучшить детали в HD — 15★. Рерайт той же комнаты gpt-image-2."""
+    """Апселл после результата: улучшить детали в HD — 15 кредитов. Рерайт той же комнаты gpt-image-2 (SPEC 5)."""
     user_id = request.get("user_id")
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
@@ -494,15 +691,24 @@ async def enhance_hd(generation_id: int, request: dict,
     if not src or not src.result_image_url:
         raise HTTPException(status_code=404, detail="Исходная генерация не найдена")
     
-    if user.stars < HD_COST:
-        raise HTTPException(status_code=402, detail=f"Нужно {HD_COST}★, на балансе {user.stars}★")
-    user.stars -= HD_COST
+    # HD из квоты PREMIUM — бесплатно (SPEC 5)
+    from_quota = False
+    if _sub_active(user) and user.tier == "premium" and (user.quota_hd or 0) > 0:
+        user.quota_hd -= 1
+        from_quota = True
+    else:
+        if (user.credits or 0) < HD_COST:
+            raise HTTPException(status_code=402, detail=f"Нужно {HD_COST} кредитов, на балансе {user.credits or 0}")
+        user.credits -= HD_COST
     db.commit()
     
     result_file = src.result_image_url.replace("/results/", "")
     result_path = os.path.join(RESULTS_DIR, result_file)
     if not os.path.exists(result_path):
-        user.stars += HD_COST
+        if from_quota:
+            user.quota_hd = (user.quota_hd or 0) + 1
+        else:
+            user.credits = (user.credits or 0) + HD_COST
         db.commit()
         raise HTTPException(status_code=404, detail="Файл результата не найден")
     
@@ -511,8 +717,9 @@ async def enhance_hd(generation_id: int, request: dict,
         original_image_url=result_file,
         style_id=src.style_id,
         category=src.category,
-        cost_stars=HD_COST,
+        cost_stars=0 if from_quota else HD_COST,
         kind="enhance_hd",
+        quality="hd",
         parent_id=src.id,
         status="pending"
     )
@@ -531,12 +738,13 @@ async def enhance_hd(generation_id: int, request: dict,
         db,
         "enhance",
     )
-    return {"task_id": task_id, "cost": HD_COST, "stars_left": user.stars}
+    return {"task_id": task_id, "cost": 0 if from_quota else HD_COST,
+            "credits_left": user.credits or 0, "stars_left": user.credits or 0}
 
 @app.post("/api/variations/{generation_id}")
 async def make_variations(generation_id: int, request: dict,
                           background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Апселл: ещё 3 варианта этого стиля — 10★."""
+    """Апселл: ещё 3 варианта этого стиля — 10 кредитов (Medium ×3, SPEC 5)."""
     user_id = request.get("user_id")
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
@@ -548,9 +756,9 @@ async def make_variations(generation_id: int, request: dict,
     if not src:
         raise HTTPException(status_code=404, detail="Исходная генерация не найдена")
     
-    if user.stars < VARIATIONS_COST:
-        raise HTTPException(status_code=402, detail=f"Нужно {VARIATIONS_COST}★, на балансе {user.stars}★")
-    user.stars -= VARIATIONS_COST
+    if (user.credits or 0) < VARIATIONS_COST:
+        raise HTTPException(status_code=402, detail=f"Нужно {VARIATIONS_COST} кредитов, на балансе {user.credits or 0}")
+    user.credits -= VARIATIONS_COST
     db.commit()
     
     original_file = src.original_image_url
@@ -560,7 +768,7 @@ async def make_variations(generation_id: int, request: dict,
         if os.path.exists(alt):
             original_path = alt
         else:
-            user.stars += VARIATIONS_COST
+            user.credits = (user.credits or 0) + VARIATIONS_COST
             db.commit()
             raise HTTPException(status_code=404, detail="Исходное фото не найдено")
     
@@ -575,6 +783,7 @@ async def make_variations(generation_id: int, request: dict,
             category=src.category,
             cost_stars=VARIATIONS_COST // 3,
             kind="variations",
+            quality="medium",
             parent_id=src.id,
             status="pending"
         )
@@ -588,13 +797,14 @@ async def make_variations(generation_id: int, request: dict,
             task_id,
             original_path,
             f"{style_prompt}.{seed_hint} Keep the room structure, windows and layout unchanged.",
-            "pro",
+            "premium",  # Medium (SPEC 5)
             generation.id,
             db,
             "style",
         )
         tasks.append(task_id)
-    return {"task_ids": tasks, "cost": VARIATIONS_COST, "stars_left": user.stars}
+    return {"task_ids": tasks, "cost": VARIATIONS_COST,
+            "credits_left": user.credits or 0, "stars_left": user.credits or 0}
 
 @app.get("/api/generate/{task_id}")
 async def get_generation_status(task_id: str):
@@ -616,7 +826,7 @@ async def get_user_generations(user_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/bonus")
 async def claim_bonus(request: dict, db: Session = Depends(get_db)):
-    """Бонусы за действия: invite_friend +30★, subscribe_channel +20★, return_week +10★."""
+    """Бонусы (SPEC 4): invite_friend +10 кредитов (макс 5/мес), subscribe_channel +5 разово."""
     user_id = request.get("user_id")
     action = request.get("action")
     if not user_id or action not in BONUS_REWARDS:
@@ -626,16 +836,30 @@ async def claim_bonus(request: dict, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # защита от повторного получения: ищем платёж-маркер с тем же product
     marker = f"bonus:{action}"
-    already = db.query(Payment).filter(
-        Payment.user_id == user_id,
-        Payment.product == marker,
-    ).first()
-    if already:
-        raise HTTPException(status_code=409, detail="Бонус уже получен")
     
-    user.stars += BONUS_REWARDS[action]
+    if action == "subscribe_channel":
+        # Разовый бонус: реальная проверка подписки при каждом запуске (SPEC 4)
+        already = db.query(Payment).filter(
+            Payment.user_id == user_id, Payment.product == marker).first()
+        if already:
+            raise HTTPException(status_code=409, detail="Бонус уже получен")
+        is_sub = await check_subscription(user_id)
+        if not is_sub:
+            raise HTTPException(status_code=403, detail="Сначала подпишитесь на канал @stroitelinfo")
+        user.is_subscribed = True
+    elif action == "invite_friend":
+        # Максимум 5 друзей в месяц (SPEC 4)
+        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        count_this_month = db.query(Payment).filter(
+            Payment.user_id == user_id,
+            Payment.product == marker,
+            Payment.created_at >= month_start,
+        ).count()
+        if count_this_month >= FRIEND_BONUS_MONTHLY_CAP:
+            raise HTTPException(status_code=409, detail="Лимит: 5 друзей в месяц")
+    
+    user.credits = (user.credits or 0) + BONUS_REWARDS[action]
     db.add(Payment(
         user_id=user_id,
         telegram_payment_charge_id=f"bonus-{action}-{user_id}-{int(datetime.now().timestamp())}",
@@ -644,19 +868,32 @@ async def claim_bonus(request: dict, db: Session = Depends(get_db)):
         status="completed",
     ))
     db.commit()
-    return {"ok": True, "reward": BONUS_REWARDS[action], "stars_left": user.stars}
+    return {"ok": True, "reward": BONUS_REWARDS[action],
+            "credits_left": user.credits or 0, "stars_left": user.credits or 0}
+
+@app.get("/api/packs")
+async def list_packs():
+    """Каталог пакетов и подписок для шторки пополнения (SPEC 4)."""
+    return {
+        "order": PACK_ORDER,
+        "packs": {pid: PACKS[pid] for pid in PACK_ORDER},
+        "design_cost": DESIGN_COST,
+        "hd_cost": HD_COST,
+        "variations_cost": VARIATIONS_COST,
+        "note": "Купленные кредиты не сгорают. Квота подписки обновляется ежемесячно, переносится максимум на 2 месяца.",
+    }
 
 @app.post("/api/buy")
 async def create_invoice(request: dict):
-    """Create invoice for star pack (stars50 | stars150 | sub300)."""
+    """Create invoice for pack/subscription (pack_s | pack_m | sub_pro | sub_premium)."""
     user_id = request.get("user_id")
-    pack_id = request.get("pack", "stars50")
+    pack_id = request.get("pack", "pack_s")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
     
-    if pack_id not in STAR_PACKS:
+    if pack_id not in PACKS:
         raise HTTPException(status_code=400, detail=f"Unknown pack: {pack_id}")
-    pack = STAR_PACKS[pack_id]
+    pack = PACKS[pack_id]
     title, description, amount = pack["title"], pack["desc"], pack["price"]
     
     payload = json.dumps({
@@ -711,14 +948,24 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         )
         db.add(payment)
         
-        # Зачисление звёзд по купленному пакету
+        # Зачисление по купленному пакету/подписке (SPEC 4)
         user = db.query(User).filter(User.telegram_id == user_id).first()
         credited_desc = payload["product"]
         if user:
-            pack = STAR_PACKS.get(payload["product"])
+            pack = PACKS.get(payload["product"])
             if pack:
-                user.stars += pack["stars"]
-                credited_desc = pack["title"]
+                if pack["kind"] == "pack":
+                    user.credits = (user.credits or 0) + pack["credits"]
+                    credited_desc = f"{pack['credits']} кредитов"
+                else:  # подписка
+                    tier = "pro" if payload["product"] == "sub_pro" else "premium"
+                    user.tier = tier
+                    user.tier_expires_at = datetime.utcnow() + timedelta(days=30)
+                    q = pack["quota"]
+                    user.quota_medium = q["medium"]
+                    user.quota_low = q["low"]
+                    user.quota_hd = q["hd"]
+                    credited_desc = f"Подписка {tier.upper()} на 30 дней"
         
         db.commit()
         
@@ -727,7 +974,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
             user_id,
             f"✅ Оплата прошла успешно!\n\n"
             f"Зачислено: {credited_desc}\n"
-            f"Баланс: ⭐ {user.stars if user else '?'} звёзд\n"
+            f"Баланс: {user.credits if user else '?'} кредитов\n"
             f"Receipt ID: `{payment_data['telegram_payment_charge_id']}`",
             parse_mode="Markdown"
         )

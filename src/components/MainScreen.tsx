@@ -20,7 +20,7 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
   const tg = window.Telegram?.WebApp
   const haptic = () => tg?.HapticFeedback.impactOccurred('light')
 
-  const affordable = user.free_generations + Math.floor(user.stars / DESIGN_COST)
+  const affordable = user.free_generations + Math.floor((user.credits || 0) / DESIGN_COST)
 
   if (screen.name === 'upload') {
     return <UploadLazy user={user} category={screen.category}
@@ -44,7 +44,7 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
       <div className="body">
         <h1 className="screen" style={{ marginTop: 10 }}>Привет, {user.first_name} 👋</h1>
         <div className="bal">
-          Баланс: <b>{user.stars} ⭐</b>
+          Баланс: <b>{user.credits || 0} кредитов</b>
           <span className="tiny">·</span>
           <span>хватит на {affordable} {affordable === 1 ? 'генерацию' : 'генераций'}</span>
           {user.free_generations > 0 && (
@@ -86,7 +86,7 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
         <button className="btn" onClick={() => { haptic(); setScreen({ name: 'upload' }) }}>Новый дизайн</button>
         <div className="row" style={{ marginTop: 8 }}>
           <button className="btn ghost sm" onClick={() => { haptic(); setScreen({ name: 'history' }) }}>История</button>
-          <button className="btn ghost sm" onClick={() => { haptic(); setScreen({ name: 'pricing' }) }}>Звёзды</button>
+          <button className="btn ghost sm" onClick={() => { haptic(); setScreen({ name: 'pricing' }) }}>Пополнить</button>
         </div>
       </div>
     </div>
@@ -128,8 +128,15 @@ function WorksStrip({ userId, onOpen }: { userId: number; onOpen: () => void }) 
       <div className="works" onClick={onOpen} style={{ cursor: 'pointer' }}>
         {works.map(w => (
           <div className="w" key={w.id}>
-            <img src={`${API_URL}${w.result_image_url}`} alt=""
-              onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden' }} />
+            {/* SPEC 1.2: превью webp + fallback-плейсхолдер вместо битой иконки */}
+            <img src={`${API_URL}${w.preview_url || w.result_image_url}`} alt=""
+              onError={(e) => {
+                const img = e.target as HTMLImageElement
+                const ph = document.createElement('div')
+                ph.className = 'ph'
+                ph.textContent = getStyleName(w.style_id)
+                img.replaceWith(ph)
+              }} />
             <div className="tiny">{getStyleName(w.style_id)}</div>
           </div>
         ))}
