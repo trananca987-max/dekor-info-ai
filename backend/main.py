@@ -1,7 +1,15 @@
-"""Декор Инфо AI Designer — backend (SPEC v2.0).
+"""Декор Инфо AI Designer — backend (PATCH v2.2).
 
 Все лимиты, цены и списания проверяются на сервере; клиент только отображает.
-Экономика — в economy.py, каталог задач/палитр/помещений — в catalog.py.
+Экономика — в economy.py, каталог стилей/задач — в catalog.py.
+
+Изменения v2.2:
+- Удалена механика генерации по примеру и флаг example_gen_used (§9).
+- Первая генерация пользователя по своему фото — Medium без вотермарки,
+  за счёт стартовых кредитов (§5).
+- Пакеты 50/250/150/350, разовые и подписки разделены (§6).
+- Каталог: 22 стиля (A/B) + 5 задач, у «Сада» 4 направления (§2).
+- Новые тексты баланса и уведомлений (§7.1, §7.5, §8).
 """
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,8 +25,7 @@ from .models import User, Generation, Payment, UserPhotoHash, AnalyticsEvent
 from .ai_generator import AIGenerator
 from .telegram_helper import check_subscription, send_message, create_invoice_link, bot
 from . import economy as eco
-from .catalog import JOBS, JOB_ORDER, PALETTES, PALETTE_ORDER, ROOM_TYPES, STYLES, \
-    JOB_PROMPTS, display_name
+from .catalog import JOBS, JOB_ORDER, STYLES, GARDEN_DIRECTIONS, display_name
 from .imghash import phash, is_same
 
 load_dotenv()
@@ -51,8 +58,8 @@ generation_tasks = {}
 
 @app.on_event("startup")
 async def startup_event():
-    print("🚀 Декор Инфо AI Designer API started! (SPEC v2.0)")
-    # --- Миграция схемы: новые колонки SPEC v2.0 ---
+    print("🚀 Декор Инфо AI Designer API started! (PATCH v2.2)")
+    # --- Миграция схемы: колонки SPEC v2.0 (остаются валидными в v2.2) ---
     try:
         from sqlalchemy import inspect, text
         insp = inspect(engine)
@@ -62,7 +69,7 @@ async def startup_event():
             "free_daily_date": "VARCHAR",
             "free_week_date": "VARCHAR",
             "starter_grant_given": "BOOLEAN DEFAULT 0",
-            "example_gen_used": "BOOLEAN DEFAULT 0",
+            "example_gen_used": "BOOLEAN DEFAULT 0",  # legacy: механика удалена (§9), колонка остаётся
             "has_ever_paid": "BOOLEAN DEFAULT 0",
             "first_seen_at": "DATETIME",
             "timezone": "VARCHAR DEFAULT 'Europe/Moscow'",
@@ -89,7 +96,7 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Schema migration skipped: {e}")
 
-    # --- Миграция валют SPEC 1.x → v2.0: credits/stars → credits_paid ---
+    # --- Миграция валют SPEC 1.x → v2.x: credits/stars → credits_paid ---
     try:
         db = SessionLocal()
         migrated = 0
@@ -101,7 +108,6 @@ async def startup_event():
                 u.credits = 0
                 u.stars = 0
                 changed = True
-            # Стартовый грант v2.0: существующие пользователи ещё не получали его
             if not u.starter_grant_given:
                 eco.grant_starter(u)
                 changed = True
@@ -113,22 +119,6 @@ async def startup_event():
         db.close()
     except Exception as e:
         print(f"⚠️ Currency migration skipped: {e}")
-
-    # --- Примеры фото (SPEC §7): копируем из бандла фронта в DATA_DIR,
-    # чтобы /api/generate-example работал на volume /data ---
-    try:
-        ex_dst = os.path.join(DATA_DIR, "examples")
-        os.makedirs(ex_dst, exist_ok=True)
-        for src_dir in ("/app/static_dist/examples", os.path.join(os.path.dirname(__file__), "..", "public", "examples")):
-            if os.path.isdir(src_dir):
-                for fn in os.listdir(src_dir):
-                    if fn.endswith(".jpg") and not os.path.exists(os.path.join(ex_dst, fn)):
-                        shutil.copyfile(os.path.join(src_dir, fn), os.path.join(ex_dst, fn))
-                if os.listdir(ex_dst):
-                    print(f"📸 Examples ready: {len(os.listdir(ex_dst))} files in {ex_dst}")
-                break
-    except Exception as e:
-        print(f"⚠️ Examples copy skipped: {e}")
 
     # --- Webhook ---
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -156,7 +146,7 @@ async def startup_event():
 
 @app.get("/api/info")
 async def root():
-    return {"message": "Декор Инфо AI Designer API", "version": "2.0.0", "status": "running"}
+    return {"message": "Декор Инфо AI Designer API", "version": "2.2.0", "status": "running"}
 
 
 @app.get("/health")
@@ -164,11 +154,11 @@ async def health():
     return {"status": "healthy"}
 
 
-# === АНАЛИТИКА (SPEC §15) ===
+# === АНАЛИТИКА ===
 
 @app.post("/api/event")
 async def log_event(request: dict, db: Session = Depends(get_db)):
-    """Клиентские события: app_open, viewport_ok, job_selected, generation_started, ..."""
+    """Клиентские события: app_open, viewport_ok, style_selected, generation_started, ..."""
     user_id = request.get("user_id")
     event = request.get("event")
     if not event:
@@ -183,7 +173,7 @@ async def log_event(request: dict, db: Session = Depends(get_db)):
 
 
 def _notify_day6(user, db):
-    """Уведомление на 6-й день пробной недели — однократно (SPEC §5)."""
+    """Уведомление на 6-й день пробной недели — однократно (§8, дословно)."""
     try:
         if user.day6_notified_at:
             return
@@ -193,7 +183,7 @@ def _notify_day6(user, db):
             import asyncio
             asyncio.create_task(send_message(
                 user.telegram_id,
-                "Завтра заканчивается пробная неделя — 10 бесплатных черновиков в день. "
+                "Завтра заканчивается пробная неделя — 10 бесплатных дизайнов в день. "
                 "Дальше 2 в неделю, полный доступ от 50 ⭐",
             ))
     except Exception as e:
@@ -212,7 +202,7 @@ async def check_user_subscription(request: dict):
 
 
 def _user_response(user, db) -> dict:
-    """Публичный профиль: кошельки + строка баланса (SPEC §5)."""
+    """Публичный профиль: кошельки + строки баланса (§7.1, §7.5)."""
     eco.ensure_daily_wallet(user)
     _notify_day6(user, db)
     db.commit()
@@ -223,11 +213,13 @@ def _user_response(user, db) -> dict:
         "first_name": user.first_name,
         "credits_paid": user.credits_paid or 0,
         "credits_free_daily": user.credits_free_daily or 0,
+        # §7.1: нейтральная строка главного экрана, без слов «кредит»/«черновик»
         "balance_line": bal["line"],
+        # §7.5: верхняя строка шита пополнения — текущее состояние
+        "sheet_line": bal["sheet_line"],
         "balance_state": bal["state"],
         "exhausted": bal["exhausted"],
         "trial_days_left": bal["trial_days_left"],
-        "example_gen_used": bool(user.example_gen_used),
         "tier": user.tier or "free",
         "quota_medium": user.quota_medium or 0,
         "quota_low": user.quota_low or 0,
@@ -279,25 +271,22 @@ async def create_user(request: dict, db: Session = Depends(get_db)):
             pass
     db.add(user)
     db.flush()
-    # Стартовый грант: 15 кредитов, один раз, идемпотентно (SPEC §4.3)
+    # Стартовый грант: 15 кредитов, один раз, идемпотентно (§5)
     eco.grant_starter(user)
     db.commit()
     db.refresh(user)
     return _user_response(user, db)
 
 
-# === КАТАЛОГ (SPEC §6, §8, §9) ===
+# === КАТАЛОГ (§2): 22 стиля + 5 задач ===
 
 @app.get("/api/catalog")
 async def catalog():
     return {
-        "jobs": {jid: JOBS[jid] for jid in JOB_ORDER},
+        "styles": {sid: {"title": s["title"], "tier": s["tier"]} for sid, s in STYLES.items()},
+        "jobs": {jid: {"title": j["title"]} for jid, j in JOBS.items()},
         "job_order": JOB_ORDER,
-        "palettes": {pid: PALETTES[pid] for pid in PALETTE_ORDER},
-        "palette_order": PALETTE_ORDER,
-        "room_types": ROOM_TYPES,
-        "styles": {sid: {"name_ru": s["name_ru"], "category": s["category"]}
-                   for sid, s in STYLES.items()},
+        "garden_directions": {gid: {"title": g["title"]} for gid, g in GARDEN_DIRECTIONS.items()},
         "costs": {"low": eco.COST_LOW, "medium": eco.COST_MEDIUM,
                   "hd": eco.COST_HD, "variations": eco.COST_VARIATIONS},
     }
@@ -305,14 +294,13 @@ async def catalog():
 
 @app.get("/api/packs")
 async def list_packs():
-    """Каталог пакетов для шторки пополнения (SPEC §12.2)."""
+    """Каталог пакетов для шторки пополнения (§6)."""
     return {
         "order": eco.PACK_ORDER,
         "packs": {pid: eco.PACKS[pid] for pid in eco.PACK_ORDER},
         "design_cost": eco.COST_MEDIUM,
         "hd_cost": eco.COST_HD,
         "variations_cost": eco.COST_VARIATIONS,
-        "free_tier_note": "15 кредитов сразу, затем 10 черновиков в день первые 7 дней",
     }
 
 
@@ -333,7 +321,7 @@ async def upload_photo(file: UploadFile = File(...), user_id: int = Form(None)):
 
     optimized_path = ai_gen.optimize_image(file_path)
 
-    # Перцептивный хеш для анти-абуза (SPEC §4.5)
+    # Перцептивный хеш для анти-абуза (§5)
     h = ""
     try:
         with open(optimized_path, "rb") as f:
@@ -343,40 +331,34 @@ async def upload_photo(file: UploadFile = File(...), user_id: int = Form(None)):
 
     return {"file_id": filename, "file_path": optimized_path, "phash": h}
 
-
-# === СПИСАНИЯ (SPEC §4): единственный источник истины — сервер ===
+# === СПИСАНИЯ (§5): единственный источник истины — сервер ===
 
 def _charge(user, quality: str, db) -> tuple:
     """
     Списывает оплату за генерацию. Возвращает (wallet, engine_tier, cost).
-    wallet: 'example' | 'free_daily' | 'quota' | 'paid' — куда возвращать при ошибке.
+    wallet: 'free_daily' | 'quota' | 'paid' — куда возвращать при ошибке.
 
-    Правила (SPEC §4.1): credits_free_daily тратится ТОЛЬКО на Low,
-    ни частично, ни как доплата на Medium/HD.
+    Правила (§5): credits_free_daily тратится ТОЛЬКО на Low,
+    на Medium и HD не применяется даже как частичная доплата.
     """
     eco.ensure_daily_wallet(user)
 
     if quality == "low":
-        # 1) Квота подписки Low
         if eco.sub_active(user) and (user.quota_low or 0) > 0:
             user.quota_low -= 1
             return "quota", "free_low", 0
-        # 2) Дневной бесплатный кошелёк — только Low
         if (user.credits_free_daily or 0) >= eco.COST_LOW:
             user.credits_free_daily -= eco.COST_LOW
             return "free_daily", "free_low", eco.COST_LOW
-        # 3) Платный кошелёк
         if (user.credits_paid or 0) >= eco.COST_LOW:
             user.credits_paid -= eco.COST_LOW
             return "paid", "free_low", eco.COST_LOW
         raise HTTPException(status_code=402, detail="Не хватает кредитов. Пополните баланс")
 
     if quality == "medium":
-        # 1) Квота подписки Medium
         if eco.sub_active(user) and (user.quota_medium or 0) > 0:
             user.quota_medium -= 1
             return "quota", "premium", 0
-        # 2) Только платный кошелёк (free_daily на Medium не применяется вообще)
         if (user.credits_paid or 0) >= eco.COST_MEDIUM:
             user.credits_paid -= eco.COST_MEDIUM
             return "paid", "premium", eco.COST_MEDIUM
@@ -399,7 +381,7 @@ def _charge(user, quality: str, db) -> tuple:
 
 
 def _refund(user, wallet: str, cost: int, quality: str):
-    """Возврат на тот кошелёк, с которого списано (SPEC §12.4)."""
+    """Возврат на тот кошелёк, с которого списано (§7.5)."""
     if wallet == "free_daily":
         user.credits_free_daily = (user.credits_free_daily or 0) + cost
     elif wallet == "paid":
@@ -411,7 +393,6 @@ def _refund(user, wallet: str, cost: int, quality: str):
             user.quota_hd = (user.quota_hd or 0) + 1
         else:
             user.quota_medium = (user.quota_medium or 0) + 1
-    # 'example' — бесплатно, возвращать нечего
 
 
 async def process_generation(task_id: str, file_path: str, style_prompt: str,
@@ -476,62 +457,55 @@ async def process_generation(task_id: str, file_path: str, style_prompt: str,
             user = db_session.query(User).filter(
                 User.telegram_id == generation.user_id).first()
             if user:
-                # Возврат на исходный кошелёк (SPEC §12.4)
                 _refund(user, generation.wallet or "paid",
                         generation.cost_stars or 0, generation.quality or "medium")
             db_session.commit()
 
 
-# === GENERATION (SPEC §6-9) ===
+# === GENERATION (§2, §5, §7) ===
 
-def _build_prompt(job_id: str, style_id: str, palette_id=None, room_type=None) -> str:
-    """Собирает промпт: задача + стиль + тип помещения + палитра."""
-    if job_id == "declutter":
-        return JOB_PROMPTS["declutter"]
-    style = STYLES.get(style_id, {})
-    parts = [style.get("prompt", "modern interior design")]
-    rt = next((r["name"] for r in ROOM_TYPES if r["id"] == room_type), None)
-    if rt:
-        room_en = {"Гостиная": "living room", "Спальня": "bedroom", "Кухня": "kitchen",
-                   "Ванная": "bathroom", "Детская": "kids room", "Прихожая": "hallway",
-                   "Балкон": "balcony", "Кабинет": "home office", "Гардеробная": "walk-in wardrobe",
-                   "Кофейня": "coffee shop", "Ресторан": "restaurant", "Офис": "office",
-                   "Салон красоты": "beauty salon", "Игровая комната": "playroom",
-                   "Мансарда": "attic", "Гараж": "garage"}.get(rt, "room")
-        parts.append(f"This is a {room_en}.")
-    pal = PALETTES.get(palette_id or "")
-    if pal and pal["prompt"]:
-        parts.append(pal["prompt"])
-    parts.append("Keep the room structure, windows and layout unchanged.")
-    return " ".join(parts)
+def _build_prompt(job_id: str, style_id: str) -> str:
+    """Собирает промпт: стиль (room_design) | задача | направление сада."""
+    if job_id == "room_design":
+        style = STYLES.get(style_id, STYLES["modern"])
+        return f"{style['prompt']}. Keep the room structure, windows and layout unchanged."
+    if job_id == "garden":
+        g = GARDEN_DIRECTIONS.get(style_id) or JOBS["garden"]
+        return f"{g['prompt']}. Keep the house and plot layout unchanged. Photorealistic."
+    job = JOBS.get(job_id)
+    if not job:
+        return "modern interior design"
+    return job["prompt"]
 
 
 @app.post("/api/generate")
 async def generate_design(request: dict, background_tasks: BackgroundTasks,
                           db: Session = Depends(get_db)):
-    """Запуск генерации. SPEC v2.0: задача → тип помещения → стиль → палитра.
+    """Запуск генерации. v2.2: стиль (room_design) или задача (5).
 
-    quality: 'low' (черновик, 1 кредит) | 'medium' (5 кредитов).
-    Анти-абуз (§4.5): повтор того же фото не сжигает лимит — возвращается
+    quality: 'low' (быстрый вариант, 1 кредит, с вотермаркой) | 'medium' (5 кредитов).
+    §5: первая генерация пользователя по своему фото — Medium без вотермарки,
+    за счёт стартовых кредитов.
+    Анти-абуз (§5): повтор того же фото не сжигает лимит — возвращается
     ранее сгенерированный результат.
     """
     user_id = request.get("user_id")
     file_id = request.get("file_id")
     style_id = request.get("style_id", "modern")
     job_id = request.get("job_id", "room_design")
-    room_type = request.get("room_type")
-    palette_id = request.get("palette_id")
     quality = request.get("quality", "medium")
     photo_hash = request.get("phash") or ""
 
     if not user_id or not file_id:
         raise HTTPException(status_code=400, detail="user_id and file_id are required")
-    if job_id not in JOBS:
+    if job_id != "room_design" and job_id not in JOBS:
         raise HTTPException(status_code=400, detail="Invalid job_id")
     if quality not in ("low", "medium"):
         raise HTTPException(status_code=400, detail="quality must be low or medium")
-    if style_id not in STYLES and job_id != "declutter":
+    if job_id == "room_design" and style_id not in STYLES:
         raise HTTPException(status_code=400, detail="Invalid style_id")
+    if job_id == "garden" and style_id and style_id not in GARDEN_DIRECTIONS:
+        raise HTTPException(status_code=400, detail="Invalid garden direction")
 
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
@@ -568,25 +542,29 @@ async def generate_design(request: dict, background_tasks: BackgroundTasks,
         else:
             raise HTTPException(status_code=404, detail="Uploaded file not found")
 
+    # §5: первая генерация по своему фото — Medium без вотермарки, за счёт стартовых
+    first_design = db.query(Generation).filter(
+        Generation.user_id == user_id,
+        Generation.kind == "design").count() == 0
+    if first_design and quality == "low" and (user.credits_paid or 0) >= eco.COST_MEDIUM:
+        quality = "medium"
+
     # Списание (сервер — единственный источник истины)
     wallet, engine_tier, cost = _charge(user, quality, db)
     db.commit()
 
-    prompt = _build_prompt(job_id, style_id, palette_id, room_type)
-    mode = "style"
+    prompt = _build_prompt(job_id, style_id)
 
     generation = Generation(
         user_id=user_id,
         original_image_url=file_id,
-        style_id=style_id if job_id != "declutter" else "declutter",
-        category=STYLES.get(style_id, {}).get("category", "interior"),
+        style_id=style_id if job_id == "room_design" else (style_id or job_id),
+        category="outdoor" if job_id in ("garden", "facade") else "interior",
         cost_stars=cost,
         wallet=wallet,
         kind="design",
         quality=quality,
         job_id=job_id,
-        room_type=room_type,
-        palette_id=palette_id,
         photo_hash=photo_hash or None,
         status="pending",
     )
@@ -601,7 +579,7 @@ async def generate_design(request: dict, background_tasks: BackgroundTasks,
     task_id = f"{user_id}_{generation.id}"
     background_tasks.add_task(
         process_generation, task_id, file_path, prompt, engine_tier,
-        generation.id, db, mode)
+        generation.id, db, "style")
 
     eco.ensure_daily_wallet(user)
     db.commit()
@@ -611,6 +589,7 @@ async def generate_design(request: dict, background_tasks: BackgroundTasks,
         "charge": wallet,
         "quality": quality,
         "cost": cost,
+        "first_design": first_design,
         "credits_paid_left": user.credits_paid or 0,
         "credits_free_daily_left": user.credits_free_daily or 0,
         # совместимость
@@ -621,61 +600,10 @@ async def generate_design(request: dict, background_tasks: BackgroundTasks,
     }
 
 
-@app.post("/api/generate-example")
-async def generate_example(request: dict, background_tasks: BackgroundTasks,
-                           db: Session = Depends(get_db)):
-    """Генерация по примеру (SPEC §7): бесплатная Medium без вотермарки,
-    не списывает ни один кошелёк, доступна ОДИН раз на пользователя."""
-    user_id = request.get("user_id")
-    example_id = request.get("example_id")
-    style_id = request.get("style_id", "modern")
-
-    if not user_id or not example_id:
-        raise HTTPException(status_code=400, detail="user_id and example_id are required")
-
-    user = db.query(User).filter(User.telegram_id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if user.example_gen_used:
-        raise HTTPException(status_code=409, detail="Пример уже использован")
-
-    example_path = os.path.join(DATA_DIR, "examples", f"{example_id}.jpg")
-    if not os.path.exists(example_path):
-        raise HTTPException(status_code=404, detail="Example photo not found")
-
-    user.example_gen_used = True  # флаг на сервере, до запуска (SPEC §7)
-    db.commit()
-
-    style = STYLES.get(style_id, STYLES["modern"])
-    generation = Generation(
-        user_id=user_id,
-        original_image_url=f"examples/{example_id}.jpg",
-        style_id=style_id,
-        category=style["category"],
-        cost_stars=0,
-        wallet="example",
-        kind="design",
-        quality="medium",
-        job_id="room_design",
-        status="pending",
-    )
-    db.add(generation)
-    db.commit()
-    db.refresh(generation)
-
-    task_id = f"{user_id}_{generation.id}"
-    prompt = f"{style['prompt']}. Keep the room structure, windows and layout unchanged."
-    background_tasks.add_task(
-        process_generation, task_id, example_path, prompt, "premium",
-        generation.id, db, "style")
-
-    return {"task_id": task_id, "charge": "example", "quality": "medium", "cost": 0}
-
-
 @app.post("/api/enhance-hd/{generation_id}")
 async def enhance_hd(generation_id: int, request: dict,
                      background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """«Улучшить в HD — 15 кредитов» (SPEC §10)."""
+    """«Сделать в высоком качестве» — 15 кредитов (§7.4, §8)."""
     user_id = request.get("user_id")
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
@@ -727,7 +655,7 @@ async def enhance_hd(generation_id: int, request: dict,
 @app.post("/api/variations/{generation_id}")
 async def make_variations(generation_id: int, request: dict,
                           background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """«Ещё варианты · 10 кредитов» — пакет из 3 Medium (SPEC §4.2, §10)."""
+    """«Другой вариант» — пакет из 3 Medium, 10 кредитов (§5, §7.4)."""
     user_id = request.get("user_id")
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
@@ -758,7 +686,7 @@ async def make_variations(generation_id: int, request: dict,
             db.commit()
             raise HTTPException(status_code=404, detail="Исходное фото не найдено")
 
-    style_prompt = STYLES.get(src.style_id, {}).get("prompt", "modern interior design")
+    style_prompt = _build_prompt(src.job_id or "room_design", src.style_id)
     tasks = []
     for i in range(3):
         generation = Generation(
@@ -770,6 +698,7 @@ async def make_variations(generation_id: int, request: dict,
             wallet="paid",
             kind="variations",
             quality="medium",
+            job_id=src.job_id,
             parent_id=src.id,
             status="pending",
         )
@@ -781,7 +710,7 @@ async def make_variations(generation_id: int, request: dict,
                      "camera angle slightly while keeping the same room.")
         background_tasks.add_task(
             process_generation, task_id, original_path,
-            f"{style_prompt}.{seed_hint} Keep the room structure, windows and layout unchanged.",
+            f"{style_prompt}{seed_hint}",
             "premium", generation.id, db, "style")
         tasks.append(task_id)
     return {"task_ids": tasks, "cost": eco.COST_VARIATIONS,
@@ -797,7 +726,7 @@ async def get_generation_status(task_id: str):
 
 @app.get("/api/users/{user_id}/generations")
 async def get_user_generations(user_id: int, db: Session = Depends(get_db)):
-    """История работ. Названия — только человекочитаемые (SPEC §11)."""
+    """История работ. Названия — только человекочитаемые (§7.1)."""
     generations = db.query(Generation).filter(
         Generation.user_id == user_id,
         Generation.status == "completed"
@@ -827,8 +756,11 @@ async def get_user_generations(user_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/share/{generation_id}")
 async def share_result(generation_id: int, request: dict, db: Session = Depends(get_db)):
-    """«Поделиться» (SPEC §10): склейка «до/после» + подпись + ссылка на бота в чат."""
+    """«Поделиться» (§7.4): склейка «до/после» на фоне share_template/bg
+    + подпись + ссылка на бота в чат."""
     user_id = request.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
     user = db.query(User).filter(User.telegram_id == user_id).first()
     gen = db.query(Generation).filter(
         Generation.id == generation_id, Generation.user_id == user_id,
@@ -842,18 +774,27 @@ async def share_result(generation_id: int, request: dict, db: Session = Depends(
     if gen.original_image_url and not gen.original_image_url.startswith("examples/"):
         before_url = f"{base_url}/uploads/{gen.original_image_url}"
 
+    # Фон шеринга (§1.3, §7.4): share_template/bg из бандла фронта
+    share_bg = None
+    for cand in ("/app/static_dist/s/share_template/bg.full.webp",
+                 os.path.join(os.path.dirname(__file__), "..", "public", "s",
+                              "share_template", "bg.full.webp")):
+        if os.path.exists(cand):
+            share_bg = cand
+            break
+
     # Склейка до/после на сервере
     collage_url = result_url
     try:
         if before_url:
-            import urllib.request
             before_path = os.path.join(UPLOADS_DIR, os.path.basename(gen.original_image_url))
             if not os.path.exists(before_path):
                 before_path = before_path.rsplit(".", 1)[0] + "_opt.jpg"
             if os.path.exists(before_path):
                 collage_path = ai_gen.make_before_after_collage(
                     before_path,
-                    os.path.join(RESULTS_DIR, gen.result_image_url.replace("/results/", "")))
+                    os.path.join(RESULTS_DIR, gen.result_image_url.replace("/results/", "")),
+                    bg_path=share_bg)
                 if collage_path:
                     collage_url = f"{base_url}/results/{os.path.basename(collage_path)}"
     except Exception as e:
@@ -862,14 +803,15 @@ async def share_result(generation_id: int, request: dict, db: Session = Depends(
     caption = (f"✨ {display_name(gen.style_id)} — сделано в Декор Инфо AI Designer\n"
                f"Попробуйте сами: https://t.me/DekorInfoAIBot_bot")
     try:
-        await send_message(user_id, caption)
         if bot is not None:
             import urllib.request
+            import io
             with urllib.request.urlopen(collage_url, timeout=30) as r:
                 img_bytes = r.read()
-            import io
             await bot.send_photo(chat_id=user_id, photo=io.BytesIO(img_bytes),
                                  caption=caption[:1000])
+        else:
+            await send_message(user_id, caption)
     except Exception as e:
         print(f"Share error: {e}")
         raise HTTPException(status_code=503, detail="Не удалось отправить в чат")
@@ -925,7 +867,7 @@ async def claim_bonus(request: dict, db: Session = Depends(get_db)):
             "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
 
 
-# === ОПЛАТА (SPEC §12): Telegram Stars, номиналы 50/150/150/350 ===
+# === ОПЛАТА (§6): Telegram Stars, номиналы 50/250/150/350 ===
 
 @app.post("/api/buy")
 async def create_invoice(request: dict):
@@ -982,7 +924,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         credited_desc = payload["product"]
         if user:
             pack = eco.PACKS.get(payload["product"])
-            user.has_ever_paid = True  # SPEC §4.4: после первой покупки 10/день навсегда
+            user.has_ever_paid = True  # §5: после первой покупки 10/день навсегда
             if pack:
                 if pack["kind"] == "pack":
                     user.credits_paid = (user.credits_paid or 0) + pack["credits"]

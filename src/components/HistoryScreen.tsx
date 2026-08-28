@@ -1,7 +1,8 @@
-// «Ваши работы» SPEC v2.0 §11: только человекочитаемые названия (display_name
+// «Ваши работы» PATCH v2.2 §7.1: только человекочитаемые названия (display_name
 // приходит с сервера), одна подпись на карточку, градиентный плейсхолдер
 // вместо битой картинки, скелетоны при загрузке.
-import { useState, useEffect } from 'react'
+// §7.3: кастомные «Назад» удалены — tg.BackButton.
+import { useState, useEffect, useRef } from 'react'
 import WebApp from '@twa-dev/sdk'
 import type { User, Generation } from '../types'
 import { getUserGenerations, API_URL } from '../api'
@@ -22,6 +23,8 @@ function formatDate(iso: string): string {
 export default function HistoryScreen({ user, onBack }: Props) {
   const [generations, setGenerations] = useState<Generation[]>([])
   const [loading, setLoading] = useState(true)
+  const backRef = useRef(onBack)
+  backRef.current = onBack
 
   useEffect(() => {
     getUserGenerations(user.telegram_id)
@@ -30,12 +33,18 @@ export default function HistoryScreen({ user, onBack }: Props) {
       .finally(() => setLoading(false))
   }, [user.telegram_id])
 
+  // §7.3: tg.BackButton вместо кастомной «← Назад»
+  useEffect(() => {
+    const bb = WebApp.BackButton
+    if (!bb) return
+    const handler = () => backRef.current()
+    bb.show()
+    bb.onClick(handler)
+    return () => { try { bb.offClick(handler); bb.hide() } catch { /* ignore */ } }
+  }, [])
+
   return (
     <>
-      <div className="app__nav">
-        <button className="link" onClick={onBack}>← Назад</button>
-        <span className="bal-nav">{user.balance_line}</span>
-      </div>
       <div className="app__body">
         <h1 className="h" style={{ marginTop: 8 }}>Ваши работы</h1>
         <p className="sub" style={{ marginBottom: 14 }}>
@@ -44,13 +53,13 @@ export default function HistoryScreen({ user, onBack }: Props) {
 
         {loading ? (
           <>
-            <div className="skel" style={{ height: 76, borderRadius: 14, marginBottom: 10 }} />
-            <div className="skel" style={{ height: 76, borderRadius: 14, marginBottom: 10 }} />
-            <div className="skel" style={{ height: 76, borderRadius: 14, marginBottom: 10 }} />
+            <div className="skel" style={{ height: 90, borderRadius: 16, marginBottom: 10 }} />
+            <div className="skel" style={{ height: 90, borderRadius: 16, marginBottom: 10 }} />
+            <div className="skel" style={{ height: 90, borderRadius: 16, marginBottom: 10 }} />
           </>
         ) : generations.length === 0 ? (
-          <div className="card">
-            <div className="pad" style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <div className="banner" style={{ cursor: 'default', justifyContent: 'center', padding: '40px 20px' }}>
+            <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 44, marginBottom: 10 }}>📭</div>
               <h2 className="card-t" style={{ marginBottom: 6 }}>Пока пусто</h2>
               <p className="sub">Создайте первый дизайн — он появится здесь</p>
@@ -70,22 +79,21 @@ export default function HistoryScreen({ user, onBack }: Props) {
                     const ph = document.createElement('div')
                     ph.className = 'ph'
                     ph.style.width = '56px'
-                    ph.style.height = '46px'
-                    ph.style.minHeight = '46px'
+                    ph.style.height = '70px'
                     ph.style.borderRadius = '9px'
                     ph.textContent = '🎨'
                     img.replaceWith(ph)
                   }} />
               ) : (
-                <div className="ph" style={{ width: 56, height: 46, minHeight: 46, borderRadius: 9 }}>🎨</div>
+                <div className="ph" style={{ width: 56, height: 70, borderRadius: 9 }}>🎨</div>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
-                {/* Одна подпись: название + дата, без дублирования (§11) */}
+                {/* Одна подпись: название + дата, без дублирования (§7.1) */}
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{g.display_name || 'Дизайн комнаты'}</div>
                 <div className="tiny">{formatDate(g.created_at)}</div>
               </div>
               {g.quality === 'hd' && <span className="badge b-gold">HD</span>}
-              {g.quality === 'low' && <span className="badge b-blue">Черновик</span>}
+              {g.quality === 'low' && <span className="badge b-blue">Быстрый</span>}
             </button>
           ))
         )}

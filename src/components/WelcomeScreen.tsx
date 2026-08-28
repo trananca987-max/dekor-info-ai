@@ -1,6 +1,8 @@
-// Онбординг SPEC v2.0: до результата — никаких решений о деньгах.
-// Стартовый грант: 15 кредитов уже на балансе (§4.3).
+// Онбординг PATCH v2.2: до результата — никаких решений о деньгах.
+// Стартовый грант: 15 кредитов уже на балансе (§5).
+// Ассеты — из конвейера (§1), LQIP-заглушки.
 import type { User } from '../types'
+import { asset, lqip } from '../lib/assets'
 import BeforeAfter from './BeforeAfter'
 
 interface Props {
@@ -27,8 +29,10 @@ export default function WelcomeScreen({ user, onSubscribe }: Props) {
         </p>
 
         <BeforeAfter
-          before="/styles/_before.jpg"
-          after="/styles/modern.jpg"
+          before={asset('_base/living_before', 'preview')}
+          after={asset('scandi/living_after', 'preview')}
+          beforeLqip={lqip('_base/living_before')}
+          afterLqip={lqip('scandi/living_after')}
           height={250}
           labelAfter="После"
         />
@@ -45,7 +49,7 @@ export default function WelcomeScreen({ user, onSubscribe }: Props) {
       </div>
 
       <div className="app__foot">
-        <button className="btn" onClick={handleStart}>Создать дизайн</button>
+        <button className="btn" onClick={handleStart}>Сделать дизайн</button>
         <button className="btn ghost sm" style={{ marginTop: 8 }} onClick={() => {
           tg?.openTelegramLink('https://t.me/stroitelinfo')
         }}>

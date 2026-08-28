@@ -1,5 +1,6 @@
 node_modules/
 dist/
+public/s/
 uploads/
 results/
 __pycache__/

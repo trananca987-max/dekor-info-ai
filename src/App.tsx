@@ -1,14 +1,16 @@
-// SPEC v2.0: каркас .app/.app__body/.app__foot + syncViewport (§3.1).
-// Чёрные экраны устранены: высота синхронизируется с Telegram-вьюпортом асинхронно.
+// PATCH v2.2: каркас .app/.app__body + syncViewport (§3) + тема (§4).
+// Тема: tg.themeParams, переключатель auto/light/dark в CloudStorage,
+// setHeaderColor/setBackgroundColor при старте и на themeChanged.
 import { useEffect, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 import './styles.css'
 import { User } from './types'
 import { getUser, createUser, checkSubscription, logEvent } from './api'
+import { applyTheme, loadTheme, type ThemeMode } from './lib/theme'
 import WelcomeScreen from './components/WelcomeScreen'
 import MainScreen from './components/MainScreen'
 
-// === SPEC §3.1: инициализация вьюпорта ===
+// === §3: инициализация вьюпорта ===
 function syncViewport() {
   const tg = window.Telegram?.WebApp as unknown as {
     viewportStableHeight?: number; viewportHeight?: number; isExpanded?: boolean;
@@ -30,35 +32,36 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [isSubscribed, setIsSubscribed] = useState(false)
+  const [themeMode, setThemeMode] = useState<ThemeMode>('auto')
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp as unknown as {
       ready: () => void; expand: () => void; disableVerticalSwipes?: () => void;
       onEvent?: (ev: string, cb: () => void) => void;
-      colorScheme?: string; setHeaderColor?: (c: string) => void;
-      setBackgroundColor?: (c: string) => void;
     } | undefined
+
+    // §4: тема из CloudStorage (фолбэк auto) — до первого рендера контента
+    loadTheme((m) => {
+      setThemeMode(m)
+      applyTheme(m)
+    })
 
     if (tg) {
       tg.ready()
       tg.expand()
       tg.disableVerticalSwipes?.()
-      // SPEC §3.1: подписки на изменения вьюпорта + отложенные синхронизации
+      // §3: подписки на изменения вьюпорта + отложенные синхронизации
       tg.onEvent?.('viewportChanged', syncViewport)
       tg.onEvent?.('safeAreaChanged', syncViewport)
       tg.onEvent?.('contentSafeAreaChanged', syncViewport)
+      // §4: смена темы Telegram на лету
+      tg.onEvent?.('themeChanged', () => {
+        loadTheme((m) => { setThemeMode(m); applyTheme(m) })
+      })
       window.addEventListener('orientationchange', () => setTimeout(syncViewport, 250))
       setTimeout(syncViewport, 100)
       setTimeout(syncViewport, 500)
       syncViewport()
-
-      // Шапка/фон под тему Telegram
-      try {
-        const isDark = tg.colorScheme === 'dark'
-        const bg = isDark ? '#0D0E11' : '#0D0E11' // приложение всегда тёмное (SPEC §10: результат всегда тёмный)
-        tg.setHeaderColor?.(bg)
-        tg.setBackgroundColor?.(bg)
-      } catch { /* старые версии */ }
     }
 
     initUser()
@@ -138,9 +141,8 @@ function App() {
         <div className="app__body">
           <div className="skel" style={{ width: '55%', height: 24, marginBottom: 12 }} />
           <div className="skel" style={{ width: '80%', height: 14, marginBottom: 22 }} />
-          <div className="skel" style={{ height: 120, borderRadius: 18, marginBottom: 12 }} />
-          <div className="skel" style={{ height: 120, borderRadius: 18, marginBottom: 12 }} />
-          <div className="skel" style={{ height: 48, borderRadius: 14, marginTop: 18 }} />
+          <div className="skel" style={{ height: 200, borderRadius: 24, marginBottom: 12 }} />
+          <div className="skel" style={{ height: 200, borderRadius: 24, marginBottom: 12 }} />
         </div>
       </div>
     )
@@ -167,7 +169,7 @@ function App() {
 
   return (
     <div className="app">
-      <MainScreen user={user} onUserUpdate={setUser} />
+      <MainScreen user={user} onUserUpdate={setUser} themeMode={themeMode} />
     </div>
   )
 }

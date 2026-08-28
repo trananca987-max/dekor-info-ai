@@ -190,8 +190,10 @@ class AnyModelGenerator:
             print(f"Preview error: {e}")
             return ""
 
-    def make_before_after_collage(self, before_path: str, after_path: str) -> str:
-        """Горизонтальная склейка «до | после» для шеринга (SPEC v2.0 §10)."""
+    def make_before_after_collage(self, before_path: str, after_path: str,
+                                  bg_path: "str | None" = None) -> str:
+        """Горизонтальная склейка «до | после» для шеринга (§7.4).
+        bg_path — фон share_template/bg (если задан)."""
         try:
             from PIL import Image, ImageDraw
             import io
@@ -203,7 +205,20 @@ class AnyModelGenerator:
                 return im.resize((w, h), Image.Resampling.LANCZOS)
             a, b = fit(a), fit(b)
             gap = 6
-            canvas = Image.new("RGB", (a.width + gap + b.width, h), (13, 14, 17))
+            canvas_w = a.width + gap + b.width
+            canvas = Image.new("RGB", (canvas_w, h), (13, 14, 17))
+            # Фон шеринга (§7.4): share_template/bg, cover-crop под размер склейки
+            if bg_path:
+                try:
+                    bg = Image.open(bg_path).convert("RGB")
+                    scale = max(canvas_w / bg.width, h / bg.height)
+                    bg = bg.resize((int(bg.width * scale), int(bg.height * scale)),
+                                   Image.Resampling.LANCZOS)
+                    left = (bg.width - canvas_w) // 2
+                    top = (bg.height - h) // 2
+                    canvas.paste(bg.crop((left, top, left + canvas_w, top + h)), (0, 0))
+                except Exception as e:
+                    print(f"Share bg error: {e}")
             canvas.paste(a, (0, 0))
             canvas.paste(b, (a.width + gap, 0))
             d = ImageDraw.Draw(canvas)

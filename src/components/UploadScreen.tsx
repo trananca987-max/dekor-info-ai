@@ -1,54 +1,49 @@
-// Флоу SPEC v2.0: фото (Камера/Галерея/Пример) → тип помещения → стиль → палитра
-// → качество → генерация → результат (до/после, HD-апгрейд, шеринг).
-// Прогресс-бар только для содержательных шагов (§9): оплата в прогресс не входит.
+// PATCH v2.2: экран фото (§7.3) и результата (§7.4).
+// Флоу: фото → [стиль | направление сада] → качество → генерация → результат.
+// §7.3: заголовок «Ваша комната», входы только «Камера» и «Галерея»,
+// дропзона растягивается, одна строка-подсказка вместо чипсов,
+// кастомные «Назад» удалены — tg.BackButton.
+// §7.4: результат всегда тёмный, слайдер до/после, тап — полноэкранный просмотр,
+// «Сделать в высоком качестве» (+15 кредитов мелким), «Другой вариант»,
+// «Сохранить», «Поделиться». Для Low — строка «Без водяного знака — в полном качестве».
+// §9: механика генерации по примеру удалена.
 import { useState, useEffect, useRef } from 'react'
-import type { User, Catalog } from '../types'
-import { getStylesByCategory } from '../config/styles'
+import type { User } from '../types'
 import {
-  uploadPhoto, generateDesign, generateExample, checkGenerationStatus,
+  uploadPhoto, generateDesign, checkGenerationStatus,
   enhanceHd, makeVariations, shareResult, logEvent,
   API_URL, COST_LOW, COST_MEDIUM, COST_HD, COST_VARIATIONS,
 } from '../api'
+import { STYLES, getJob, type Style } from '../config/catalog'
+import { asset, lqip } from '../lib/assets'
 import BeforeAfter from './BeforeAfter'
 
 interface Props {
   user: User
   jobId: string
-  catalog: Catalog | null
+  initialStyleId?: string
   onBack: () => void
   onUserUpdate: (user: User) => void
   onOpenPricing: () => void
 }
 
-type Step = 'upload' | 'room' | 'style' | 'palette' | 'quality' | 'processing' | 'result'
+type Step = 'upload' | 'style' | 'direction' | 'quality' | 'processing' | 'result'
 
 const GEN_STEPS = ['Читаю геометрию комнаты', 'Подбираю мебель', 'Рисую свет и тени']
 
-const EXAMPLES = [
-  { id: 'living_room', name: 'Гостиная' },
-  { id: 'bedroom', name: 'Спальня' },
-  { id: 'kitchen', name: 'Кухня' },
-  { id: 'bathroom', name: 'Ванная' },
-  { id: 'kids_room', name: 'Детская' },
-  { id: 'balcony', name: 'Балкон' },
-]
-
-export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdate, onOpenPricing }: Props) {
+export default function UploadScreen({ user, jobId, initialStyleId, onBack, onUserUpdate, onOpenPricing }: Props) {
   const tg = window.Telegram?.WebApp
-  const isDeclutter = jobId === 'declutter'
+  const job = getJob(jobId)
+  const isRoomDesign = jobId === 'room_design'
   const isGarden = jobId === 'garden'
-  const category = isGarden ? 'outdoor' : 'interior'
 
   const [step, setStep] = useState<Step>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [fileId, setFileId] = useState('')
-  const [, setPhotoHash] = useState('')
-  const [roomType, setRoomType] = useState('')
-  const [styleId, setStyleId] = useState('')
-  const [paletteId, setPaletteId] = useState('')
+  const [styleId, setStyleId] = useState(initialStyleId || '')
+  const [directionId, setDirectionId] = useState('')
   const [quality, setQuality] = useState<'low' | 'medium'>('medium')
-  const [examplesOpen, setExamplesOpen] = useState(false)
   const [resultUrl, setResultUrl] = useState('')
   const [generationId, setGenerationId] = useState<number | null>(null)
   const [chargeLabel, setChargeLabel] = useState('')
@@ -56,11 +51,13 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
   const [progress, setProgress] = useState(8)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [fullscreen, setFullscreen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const backRef = useRef(onBack)
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
-  // SPEC §3.3: сброс скролла при смене шага
+  // §3: сброс скролла при смене шага
   useEffect(() => {
     const b = document.querySelector('.app__body')
     if (b) b.scrollTop = 0
@@ -71,6 +68,24 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
     const t = setInterval(() => setProgress(p => Math.min(90, p + 3 + Math.random() * 5)), 900)
     return () => clearInterval(t)
   }, [step])
+
+  // §7.3: навигация назад — tg.BackButton вместо кастомных кнопок
+  const stepBack = () => {
+    if (step === 'upload') onBack()
+    else if (step === 'style' || step === 'direction') setStep('upload')
+    else if (step === 'quality') setStep(isRoomDesign && !initialStyleId ? 'style' : isGarden ? 'direction' : 'upload')
+    else if (step === 'result') onBack()
+  }
+  backRef.current = stepBack
+  useEffect(() => {
+    const bb = tg?.BackButton
+    if (!bb) return
+    const handler = () => backRef.current()
+    bb.show()
+    bb.onClick(handler)
+    return () => { try { bb.offClick(handler) } catch { /* ignore */ } }
+  }, [tg])
+  useEffect(() => () => { try { tg?.BackButton.hide() } catch { /* ignore */ } }, [tg])
 
   const pollTask = (taskId: string, onDone: (url: string) => void) => {
     pollRef.current = setInterval(async () => {
@@ -105,62 +120,38 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
     setPreviewUrl(URL.createObjectURL(f))
     setError('')
     logEvent(user.telegram_id, 'photo_uploaded', { job_id: jobId })
-    setStep('room')
   }
 
-  // SPEC §7: генерация по примеру — бесплатная Medium без вотермарки, 1 раз
-  const startExample = async (exampleId: string) => {
-    if (user.example_gen_used) return
-    setBusy(true)
-    setError('')
-    setProgress(8)
-    setStep('processing')
-    logEvent(user.telegram_id, 'example_photo_used', { example_id: exampleId })
-    try {
-      const res = await generateExample({
-        user_id: user.telegram_id,
-        example_id: exampleId,
-        style_id: 'modern',
-      })
-      setGenerationId(parseInt(res.task_id.split('_')[1], 10))
-      setResultQuality('medium')
-      setChargeLabel('Бесплатно · пример')
-      onUserUpdate({ ...user, example_gen_used: true })
-      pollTask(res.task_id, (url) => { setResultUrl(url); setBusy(false); setStep('result') })
-    } catch (err: unknown) {
-      const resp = (err as { response?: { status?: number; data?: { detail?: string } } })?.response
-      setError(resp?.data?.detail || 'Не удалось запустить генерацию')
-      setBusy(false)
-      setStep('upload')
-    }
+  const afterUpload = () => {
+    if (isRoomDesign && !initialStyleId) setStep('style')
+    else if (isGarden) setStep('direction')
+    else setStep('quality')
   }
 
-  const start = async () => {
+  const start = async (forcedQuality?: 'low' | 'medium') => {
     if (!file || !user) return
+    const q = forcedQuality || quality
     setProgress(8)
     setStep('processing')
     setError('')
     setBusy(true)
     try {
-      const up = await uploadPhoto(user.telegram_id, file)
+      const up = fileId
+        ? { file_id: fileId, phash: '' }
+        : await uploadPhoto(user.telegram_id, file)
       setFileId(up.file_id)
-      setPhotoHash(up.phash)
-      const sid = isDeclutter ? 'declutter' : (styleId || 'modern')
-      logEvent(user.telegram_id, 'generation_started', {
-        job_id: jobId, quality, wallet: quality === 'low' ? 'free_daily_or_paid' : 'paid',
-      })
+      const sid = isRoomDesign ? (styleId || 'modern') : isGarden ? (directionId || 'garden_cozy') : jobId
+      logEvent(user.telegram_id, 'generation_started', { job_id: jobId, quality: q })
       const res = await generateDesign({
         user_id: user.telegram_id,
         file_id: up.file_id,
         style_id: sid,
         job_id: jobId,
-        room_type: roomType || undefined,
-        palette_id: paletteId || undefined,
-        quality,
+        quality: q,
         phash: up.phash,
       })
       if (res.cached && res.result_url) {
-        // Анти-абуз §4.5: это фото уже обрабатывали — показываем старый результат
+        // Анти-абуз §5: это фото уже обрабатывали — показываем старый результат
         clearInterval(pollRef.current!)
         setResultUrl(res.result_url)
         setGenerationId(res.generation_id ?? null)
@@ -173,7 +164,7 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
       setGenerationId(parseInt(res.task_id!.split('_')[1], 10))
       setResultQuality(res.quality || 'medium')
       setChargeLabel(
-        res.charge === 'free_daily' ? 'Черновик · бесплатно' :
+        res.charge === 'free_daily' ? 'Быстрый вариант · бесплатно' :
         res.charge === 'quota' ? 'Из подписки' :
         `−${res.cost} ${res.cost === 1 ? 'кредит' : 'кредитов'}`
       )
@@ -187,98 +178,76 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
       const resp = (err as { response?: { status?: number; data?: { detail?: string } } })?.response
       if (resp?.status === 402) {
         logEvent(user.telegram_id, 'free_limit_reached', { job_id: jobId })
-        setError(resp?.data?.detail || 'Не хватает кредитов')
-        setStep('quality')
-      } else {
-        setError(resp?.data?.detail || 'Не удалось запустить генерацию')
-        setStep('quality')
       }
+      setError(resp?.data?.detail || 'Не удалось запустить генерацию')
+      setStep('quality')
       setBusy(false)
     }
   }
 
-  // Прогресс-бар «Шаг N из 3» (§9): declutter — один содержательный шаг
-  const totalSteps = isDeclutter ? 1 : 3
-  const stepNum = step === 'room' ? 1 : step === 'style' ? 2 : step === 'palette' ? 3 : 0
-  const progressBar = stepNum > 0 && (
+  // Прогресс «Шаг N из M» — только содержательные шаги (§7.3)
+  const substantive: Step[] = isRoomDesign
+    ? (initialStyleId ? ['upload'] : ['upload', 'style'])
+    : isGarden ? ['upload', 'direction'] : ['upload']
+  const totalSteps = substantive.length
+  const stepNum = substantive.indexOf(step) + 1
+  const progressBar = totalSteps > 1 && stepNum > 0 && (
     <div className="prog">
       <span className="lbl">Шаг {stepNum} из {totalSteps}</span>
       <div className="bar"><div className="fill" style={{ width: `${(stepNum / totalSteps) * 100}%` }} /></div>
     </div>
   )
 
-  const nav = (back: () => void) => (
-    <div className="app__nav">
-      <button className="link" onClick={back}>← Назад</button>
-      <span className="bal-nav">{user.balance_line}</span>
-    </div>
-  )
-
-  // ===== STEP: upload (SPEC §7: Камера / Галерея / Пример) =====
+  // ===== STEP: upload (§7.3) =====
   if (step === 'upload') {
     return (
       <>
-        {nav(onBack)}
-        <div className="app__body">
-          <h1 className="h" style={{ marginTop: 8 }}>Фото комнаты</h1>
+        <div className="app__body" style={{ display: 'flex', flexDirection: 'column' }}>
+          <h1 className="h" style={{ marginTop: 8 }}>Ваша комната</h1>
           <p className="sub" style={{ marginBottom: 14 }}>
-            Снимите комнату целиком, при дневном свете
+            Подойдёт любое фото — можно из галереи
           </p>
 
           {!previewUrl ? (
             <label className="drop">
               <span className="cam">📷</span>
-              <span>Нажмите, чтобы выбрать фото</span>
+              <span style={{ fontWeight: 600, color: 'var(--text)' }}>Сфотографируйте комнату</span>
               <span className="tiny">JPG или PNG, до 10 МБ</span>
               <input type="file" accept="image/jpeg,image/png,image/webp"
                 style={{ display: 'none' }} onChange={handleFile} />
             </label>
           ) : (
-            <img src={previewUrl} alt="Превью"
-              style={{ width: '100%', height: 220, objectFit: 'cover', borderRadius: 18, marginBottom: 12 }} />
+            <div className="photo-wrap">
+              <div className="drop has-photo" style={{ position: 'relative' }}>
+                <img src={previewUrl} alt="Превью" />
+              </div>
+              <button className="replace-btn"
+                onClick={() => document.querySelector<HTMLInputElement>('input[type=file]')?.click()}>
+                Заменить
+              </button>
+            </div>
           )}
 
-          <div className="chips">
-            <span className="c">Один угол</span><span className="c">Без людей</span>
-            <span className="c">Горизонтальный кадр</span>
-          </div>
+          {/* §7.3: одна строка вместо чипсов */}
+          <p className="shoot-hint">Снимите комнату целиком, с одного угла</p>
           {error && <div className="err">{error}</div>}
         </div>
 
         <div className="app__foot">
-          <div className="src3">
-            <button onClick={() => document.querySelector<HTMLInputElement>('input[type=file]')?.click()}>
-              <span className="ic">📷</span>Камера
-            </button>
-            <button onClick={() => document.querySelector<HTMLInputElement>('input[type=file]')?.click()}>
-              <span className="ic">🖼</span>Галерея
-            </button>
-            <button onClick={() => { setExamplesOpen(!examplesOpen); tg?.HapticFeedback.impactOccurred('light') }}
-              disabled={user.example_gen_used}>
-              <span className="ic">✨</span>{user.example_gen_used ? 'Пример использован' : 'Пример'}
-            </button>
-          </div>
-
-          {/* SPEC §7: шесть готовых комнат — результат за 20 секунд без своего фото */}
-          {examplesOpen && !user.example_gen_used && (
-            <>
-              <p className="tiny" style={{ marginBottom: 6 }}>
-                Бесплатный дизайн по примеру — без вашего фото, один раз
-              </p>
-              <div className="exrow">
-                {EXAMPLES.map(ex => (
-                  <button key={ex.id} className="ex" onClick={() => startExample(ex.id)}>
-                    <img src={`/examples/${ex.id}.jpg`} alt={ex.name} loading="lazy" />
-                    <span className="nm">{ex.name}</span>
-                  </button>
-                ))}
-              </div>
-            </>
+          {!previewUrl && (
+            <div className="src2">
+              <button onClick={() => document.querySelector<HTMLInputElement>('input[type=file]')?.click()}>
+                <span className="ic">📷</span>Камера
+              </button>
+              <button onClick={() => document.querySelector<HTMLInputElement>('input[type=file]')?.click()}>
+                <span className="ic">🖼</span>Галерея
+              </button>
+            </div>
           )}
-
-          <button className="btn" disabled={!file} onClick={() => setStep('room')}>
-            Продолжить
-          </button>
+          {/* §7.3: кнопка появляется только после выбора фото */}
+          {previewUrl && (
+            <button className="btn" onClick={afterUpload}>Продолжить</button>
+          )}
           <label style={{ display: 'none' }}>
             <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFile} />
           </label>
@@ -287,72 +256,35 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
     )
   }
 
-  // ===== STEP: room — тип помещения (§9, шаг 1) =====
-  if (step === 'room') {
-    const rooms = catalog?.room_types ?? []
-    const list = isGarden ? [] : rooms
-    return (
-      <>
-        {nav(() => setStep('upload'))}
-        <div className="app__body">
-          {progressBar}
-          <h1 className="h" style={{ marginTop: 8 }}>Что это за помещение?</h1>
-          {isGarden ? (
-            <p className="sub" style={{ marginBottom: 14 }}>
-              Для участка тип не нужен — сразу к стилю
-            </p>
-          ) : (
-            <p className="sub" style={{ marginBottom: 14 }}>
-              Так результат будет точнее
-            </p>
-          )}
-          {!isGarden && (
-            <div className="rooms">
-              {list.map(r => (
-                <button key={r.id} className={`room ${roomType === r.id ? 'on' : ''}`}
-                  onClick={() => { setRoomType(r.id); tg?.HapticFeedback.selectionChanged() }}>
-                  {r.name}
-                  {roomType === r.id && <span className="tick">✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="app__foot">
-          <button className="btn" disabled={!isGarden && !roomType}
-            onClick={() => setStep(isDeclutter ? 'quality' : 'style')}>
-            Продолжить
-          </button>
-        </div>
-      </>
-    )
-  }
-
-  // ===== STEP: style (§6: выбор стиля — второй шаг внутри задачи) =====
+  // ===== STEP: style — 22 стиля из конфига (§2) =====
   if (step === 'style') {
-    const list = getStylesByCategory(category)
     return (
       <>
-        {nav(() => setStep('room'))}
         <div className="app__body">
           {progressBar}
           <h1 className="h" style={{ marginTop: 8 }}>Выберите стиль</h1>
           <p className="sub" style={{ marginBottom: 12 }}>
             Одна и та же комната в каждом стиле — разница видна сразу
           </p>
-          <div className="styles">
-            {list.map((s) => (
-              <button key={s.id} className={`st ${styleId === s.id ? 'on' : ''}`}
+          <div className="sc">
+            {STYLES.map((s: Style) => (
+              <button key={s.id}
+                className="sc-card"
+                style={styleId === s.id ? { boxShadow: '0 0 0 2px var(--primary)' } : undefined}
                 onClick={() => { setStyleId(s.id); tg?.HapticFeedback.selectionChanged() }}>
-                <img className="img" src={`/styles/${s.id}.jpg`} alt={s.name} loading="lazy" />
-                {styleId === s.id && <span className="tick">✓</span>}
-                <span className="nm">{s.name}</span>
+                <img src={asset(s.cover, 'thumb')} alt={s.title} loading="lazy"
+                  style={{ background: `url(${lqip(s.cover)}) center/cover` }} />
+                <div className="card__scrim" />
+                <div className="card__plate">
+                  <span className="nm">{s.title}</span>
+                  <span className="hint">{s.hint}</span>
+                </div>
               </button>
             ))}
           </div>
         </div>
         <div className="app__foot">
-          <button className="btn" disabled={!styleId} onClick={() => setStep('palette')}>
+          <button className="btn" disabled={!styleId} onClick={() => setStep('quality')}>
             Продолжить
           </button>
         </div>
@@ -360,54 +292,30 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
     )
   }
 
-  // ===== STEP: palette (§8, шаг 3) =====
-  if (step === 'palette') {
-    const pals = catalog?.palettes ?? {}
-    const order = catalog?.palette_order ?? []
+  // ===== STEP: direction — четыре направления сада (§2) =====
+  if (step === 'direction') {
+    const dirs = job?.directions ?? []
     return (
       <>
-        {nav(() => setStep('style'))}
         <div className="app__body">
           {progressBar}
-          <h1 className="h" style={{ marginTop: 8 }}>Цветовая палитра</h1>
-          <p className="sub" style={{ marginBottom: 12 }}>
-            Необязательно — можно оставить как есть
-          </p>
-          <div className="pals">
-            {order.map(pid => {
-              const p = pals[pid]
-              if (!p) return null
-              const selected = paletteId === pid || (pid === 'none' && paletteId === '')
-              return (
-                <button key={pid} className={`pal ${selected ? 'on' : ''}`}
-                  onClick={() => {
-                    setPaletteId(pid === 'surprise' ? 'surprise' : pid === 'none' ? '' : pid)
-                    tg?.HapticFeedback.selectionChanged()
-                    if (pid === 'surprise') logEvent(user.telegram_id, 'palette_selected', { palette_id: 'surprise' })
-                  }}>
-                  {p.colors.length > 0 && (
-                    <span className="dots">
-                      {p.colors.map(c => <span key={c} className="dot" style={{ background: c }} />)}
-                    </span>
-                  )}
-                  {p.colors.length === 0 && <span className="dots"><span className="dot" style={{ background: 'conic-gradient(#FF5E7E,#FFC24B,#3DDC97,#2E90FA,#FF5E7E)' }} /></span>}
-                  <span className="nm">{p.name}</span>
-                  {selected && <span className="tick">✓</span>}
-                </button>
-              )
-            })}
-            <button className={`pal ${paletteId === '' ? 'on' : ''}`}
-              onClick={() => setPaletteId('')}>
-              <span className="nm">Без палитры</span>
-              {paletteId === '' && <span className="tick">✓</span>}
-            </button>
+          <h1 className="h" style={{ marginTop: 8 }}>Каким будет участок?</h1>
+          <p className="sub" style={{ marginBottom: 12 }}>Выберите направление</p>
+          <div className="dirs">
+            {dirs.map(d => (
+              <button key={d.id} className={`dir ${directionId === d.id ? 'on' : ''}`}
+                onClick={() => { setDirectionId(d.id); tg?.HapticFeedback.selectionChanged() }}>
+                <img src={asset(d.after, 'thumb')} alt={d.label} loading="lazy"
+                  style={{ background: `url(${lqip(d.after)}) center/cover` }} />
+                <div className="card__scrim" />
+                <div className="card__plate"><span className="nm">{d.label}</span></div>
+                {directionId === d.id && <span className="tick">✓</span>}
+              </button>
+            ))}
           </div>
         </div>
         <div className="app__foot">
-          <button className="btn" onClick={() => {
-            if (paletteId) logEvent(user.telegram_id, 'palette_selected', { palette_id: paletteId })
-            setStep('quality')
-          }}>
+          <button className="btn" disabled={!directionId} onClick={() => setStep('quality')}>
             Продолжить
           </button>
         </div>
@@ -415,39 +323,36 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
     )
   }
 
-  // ===== STEP: quality (коммерческий шаг — НЕ в прогресс-баре, §9) =====
+  // ===== STEP: quality (коммерческий шаг — НЕ в прогресс-баре, §7.3) =====
   if (step === 'quality') {
     const freeLeft = user.credits_free_daily || 0
     const paidLeft = user.credits_paid || 0
-    // SPEC §5: дневной лимит исчерпан
+    // §8: экран при исчерпанном лимите
     const dailyExhausted = freeLeft <= 0
     return (
       <>
-        {nav(() => setStep(isDeclutter ? 'room' : 'palette'))}
         <div className="app__body">
           <h1 className="h" style={{ marginTop: 8 }}>
-            {dailyExhausted ? 'Черновики на сегодня закончились' : 'Качество результата'}
+            {dailyExhausted ? 'Бесплатные дизайны на сегодня закончились' : 'Качество результата'}
           </h1>
           <p className="sub" style={{ marginBottom: 14 }}>
             {dailyExhausted
-              ? 'Создайте дизайн в полном качестве — без водяного знака'
-              : 'Черновик подходит, чтобы быстро посмотреть идею'}
+              ? 'Сделайте дизайн в полном качестве — без водяного знака'
+              : 'Быстрый вариант подходит, чтобы мгновенно посмотреть идею'}
           </p>
 
           {!dailyExhausted && (
             <button className={`act ${quality === 'low' ? 'on' : ''}`}
-              style={quality === 'low' ? { borderColor: 'var(--acc)' } : {}}
               onClick={() => setQuality('low')}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>Черновик</div>
-                <div className="tiny">Быстро · с водяным знаком · {freeLeft > 0 ? 'бесплатно сегодня' : `${COST_LOW} кредит`}</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>Быстрый вариант</div>
+                <div className="tiny">Мгновенно · с водяным знаком · {freeLeft > 0 ? 'бесплатно сегодня' : `${COST_LOW} кредит`}</div>
               </div>
               <span className="p free">{freeLeft > 0 ? `Сегодня: ${freeLeft}` : `${COST_LOW} кр.`}</span>
             </button>
           )}
 
-          <button className={`act`}
-            style={quality === 'medium' ? { borderColor: 'var(--acc)' } : {}}
+          <button className={`act ${quality === 'medium' ? 'on' : ''}`}
             onClick={() => setQuality('medium')}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700 }}>Полное качество</div>
@@ -459,10 +364,8 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
           {error && <div className="err">{error}</div>}
         </div>
         <div className="app__foot">
-          {/* SPEC §5: первичная кнопка «Создать дизайн · 5 кредитов» */}
-          <button className="btn" onClick={start}>
-            Создать дизайн · {quality === 'low' && freeLeft > 0 ? 'бесплатно' : `${quality === 'low' ? COST_LOW : COST_MEDIUM} ${quality === 'low' ? 'кредит' : 'кредитов'}`}
-          </button>
+          {/* §8: «Сделать дизайн» — без цены в кнопке */}
+          <button className="btn" onClick={() => start()}>Сделать дизайн</button>
           {(dailyExhausted || paidLeft < COST_MEDIUM) && (
             <button className="linkline" onClick={onOpenPricing}>Пополнить баланс</button>
           )}
@@ -484,7 +387,7 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
           <div style={{ maxWidth: 210, margin: '0 auto' }}>
             {GEN_STEPS.map((s, i) => (
               <div key={s} className={`step ${progress > (i + 1) * 28 ? 'on' : ''}`}>
-                <span className={`dot ${progress > (i + 1) * 28 ? 'on' : ''}`} />{s}
+                <span className={`dotp ${progress > (i + 1) * 28 ? 'on' : ''}`} />{s}
               </div>
             ))}
           </div>
@@ -497,7 +400,7 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
     )
   }
 
-  // ===== STEP: result (SPEC §10: всегда тёмный, до/после, HD, варианты, шеринг) =====
+  // ===== STEP: result (§7.4: всегда тёмный) =====
   const doUpsell = async (kind: 'hd' | 'variations') => {
     if (!user || !generationId) return
     setBusy(true)
@@ -569,38 +472,42 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
 
   return (
     <>
-      <div className="app__nav">
-        <button className="link" onClick={onBack}>← На главную</button>
-        <span className="bal-nav">{user.balance_line}</span>
-      </div>
-      {/* SPEC §10: экран результата всегда тёмный */}
-      <div className="app__body" style={{ background: '#0D0E11' }}>
-        {fileId ? (
+      {/* §7.4: экран результата всегда тёмный */}
+      <div className="app__body result-dark" style={{ background: '#0F1013' }}>
+        <div onClick={() => setFullscreen(true)} style={{ cursor: 'zoom-in' }}>
           <BeforeAfter
             before={`${API_URL}/uploads/${fileId}`}
             after={`${API_URL}${resultUrl}`}
-            height={260}
             labelAfter={resultQuality === 'hd' ? 'HD' : 'После'}
           />
-        ) : (
-          /* Генерация по примеру: «до» нет — показываем только результат */
-          <img src={`${API_URL}${resultUrl}`} alt="Результат"
-            style={{ width: '100%', height: 260, objectFit: 'cover', borderRadius: 18, marginBottom: 14 }} />
-        )}
+        </div>
         {chargeLabel && (
           <p className="tiny" style={{ textAlign: 'center', marginBottom: 10 }}>{chargeLabel}</p>
         )}
 
-        {/* SPEC §10: первичная кнопка — «Улучшить в HD — 15 кредитов» */}
-        {resultQuality !== 'hd' && (
-          <button className="btn" disabled={busy} onClick={() => doUpsell('hd')}
-            style={{ marginBottom: 10 }}>
-            Улучшить в HD — {COST_HD} кредитов
+        {/* §7.4: для Low вотермарка наложена сервером — строка со ссылкой на Medium */}
+        {resultQuality === 'low' && (
+          <button className="wm-note" onClick={() => {
+            logEvent(user.telegram_id, 'wm_upgrade_clicked', { generation_id: generationId })
+            start('medium')
+          }}>
+            Без водяного знака — <b>в полном качестве</b>
           </button>
+        )}
+
+        {/* §7.4: первичная «Сделать в высоком качестве», под ней мелким «15 кредитов» */}
+        {resultQuality !== 'hd' && (
+          <>
+            <button className="btn" disabled={busy} onClick={() => doUpsell('hd')}
+              style={{ marginBottom: 4 }}>
+              Сделать в высоком качестве
+            </button>
+            <p className="hd-price">{COST_HD} кредитов</p>
+          </>
         )}
         <button className="act" disabled={busy} onClick={() => doUpsell('variations')}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Ещё варианты</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Другой вариант</div>
             <div className="tiny">Тот же стиль, другая расстановка</div>
           </div>
           <span className="p">{COST_VARIATIONS} кредитов</span>
@@ -610,12 +517,19 @@ export default function UploadScreen({ user, jobId, catalog, onBack, onUserUpdat
         {busy && <p className="tiny" style={{ textAlign: 'center', marginTop: 8 }}>Работаем…</p>}
       </div>
 
-      <div className="app__foot">
+      <div className="app__foot result-dark" style={{ background: '#0F1013' }}>
         <div className="row">
-          <button className="btn ghost sm" onClick={handleDownload}>💾 Сохранить</button>
-          <button className="btn ghost sm" onClick={handleShare}>📤 Поделиться</button>
+          <button className="btn ghost sm" onClick={handleDownload}>Сохранить</button>
+          <button className="btn ghost sm" onClick={handleShare}>Поделиться</button>
         </div>
       </div>
+
+      {/* §7.4: тап — полноэкранный просмотр */}
+      {fullscreen && (
+        <div className="fullscreen" onClick={() => setFullscreen(false)}>
+          <img src={`${API_URL}${resultUrl}`} alt="Результат" />
+        </div>
+      )}
     </>
   )
 }

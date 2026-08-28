@@ -1,53 +1,61 @@
-"""Экономика SPEC v2.0: два кошелька, стартовый грант, free tier, тарифы.
+"""Экономика PATCH v2.2: два кошелька, стартовый грант, free tier, тарифы.
 
-Единственный источник истины по лимитам и списаниям — сервер (SPEC §0).
+Единственный источник истины по лимитам и списаниям — сервер.
 
-Кошельки (SPEC §4.1):
-- credits_paid      — купленные и бонусные; не сгорают; любая модель.
-- credits_free_daily — бесплатные; обнуляются в 00:00 по таймзоне юзера;
-                       тратятся ТОЛЬКО на Low (ни частично, ни как доплата).
+Кошельки (§5):
+- credits_paid      — купленные и стартовые; не сгорают; любая модель.
+- credits_free_daily — бесплатные; обнуляются в 00:00 по таймзоне юзера (фолбэк UTC+3);
+                       тратятся ТОЛЬКО на Low, на Medium и HD не применяются
+                       даже как частичная доплата.
 
-Курс кредитов (SPEC §4.2): Low=1, Medium=5, HD=15, варианты=10/пакет.
+Курс кредитов (§5): Low=1, Medium=5, HD=15, доп. варианты=10.
+Первая генерация пользователя по своему фото — Medium без вотермарки,
+за счёт стартовых кредитов (§5).
 """
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
-# === Курс кредитов (SPEC §4.2) ===
+# === Курс кредитов (§5) ===
 COST_LOW = 1
 COST_MEDIUM = 5
 COST_HD = 15
 COST_VARIATIONS = 10
 
-# === Стартовый грант (SPEC §4.3): 15 кредитов в credits_paid, один раз ===
+# === Стартовый грант (§5): 15 кредитов в credits_paid, один раз ===
 STARTER_GRANT = 15
 
-# === Free tier (SPEC §4.4) ===
-DAILY_FREE_DAYS = 7          # дни 1-7: 10 кредитов/день
+# === Free tier (§5) ===
+DAILY_FREE_DAYS = 7          # дни 1-7: 10 кредитов/день (только Low)
 DAILY_FREE_AMOUNT = 10
 WEEKLY_FREE_AMOUNT = 2       # день 8+, не платил: 2 кредита/неделю
 NEW_ID_DAILY_AMOUNT = 5      # свежие telegram id: первые сутки 5 вместо 10
-NEW_ID_THRESHOLD = 8_000_000_000  # порог монотонно растущего id (конфиг)
+NEW_ID_THRESHOLD = 8_000_000_000
 
-# === Тарифы (SPEC §12.2): цены выровнены по номиналам Telegram 50/150/150/350 ===
+# === Метрика free_low_cost_per_user_month (§5): алерт на 25 ₽ ===
+FREE_LOW_COST_RUB = 0.14     # расчётная себестоимость одной Low-генерации
+FREE_LOW_ALERT_RUB = 25.0
+
+# === Тарифы (§6): цены совпадают с номиналами Telegram 50/250/150/350.
+# M и PRO больше не совпадают по цене; разовые и подписки разделены на группы.
 PACKS = {
-    "pack_s": {"credits": 50, "price": 50, "title": "S · 50 кредитов",
-               "desc": "10 дизайнов Medium", "badge": None, "kind": "pack",
-               "saving": None},
-    "pack_m": {"credits": 180, "price": 150, "title": "M · 180 кредитов",
-               "desc": "36 дизайнов Medium", "badge": "Выгодно", "kind": "pack",
-               "saving": "Экономия 20%"},
+    "pack_s": {"credits": 50, "price": 50, "title": "10 дизайнов · 50 ⭐",
+               "desc": "50 кредитов — хватит на 10 дизайнов", "badge": None,
+               "kind": "pack", "group": "Разовая покупка", "saving": None},
+    "pack_m": {"credits": 300, "price": 250, "title": "60 дизайнов · 250 ⭐",
+               "desc": "300 кредитов — хватит на 60 дизайнов", "badge": "Выгодно",
+               "kind": "pack", "group": "Разовая покупка", "saving": "Экономия 20%"},
     "sub_pro": {"credits": 0, "price": 150, "title": "PRO · 150 ⭐/мес",
-                "desc": "40 Medium + 200 черновиков Low", "badge": "Популярный",
-                "kind": "sub", "saving": None,
+                "desc": "40 Medium + 200 быстрых вариантов Low", "badge": None,
+                "kind": "sub", "group": "Подписка", "saving": None,
                 "quota": {"medium": 40, "low": 200, "hd": 0}},
     "sub_premium": {"credits": 0, "price": 350, "title": "PREMIUM · 350 ⭐/мес",
-                    "desc": "20 HD + 60 Medium + 300 Low", "badge": "Максимум",
-                    "kind": "sub", "saving": "Дизайн дешевле, чем в PRO",
+                    "desc": "20 HD + 60 Medium + 300 Low", "badge": None,
+                    "kind": "sub", "group": "Подписка", "saving": None,
                     "quota": {"medium": 60, "low": 300, "hd": 20}},
 }
 PACK_ORDER = ["pack_s", "pack_m", "sub_pro", "sub_premium"]
 
-# Бонусы (перенесены из SPEC 1.x, не противоречат v2.0)
+# Бонусы (перенесены из SPEC 1.x, не противоречат v2.2)
 BONUS_REWARDS = {"invite_friend": 10, "subscribe_channel": 5}
 FRIEND_BONUS_MONTHLY_CAP = 5
 
@@ -56,7 +64,7 @@ def user_tz(user) -> ZoneInfo:
     try:
         return ZoneInfo(user.timezone or "Europe/Moscow")
     except Exception:
-        return ZoneInfo("Europe/Moscow")  # фолбэк UTC+3 (SPEC §14)
+        return ZoneInfo("Europe/Moscow")  # фолбэк UTC+3 (§5)
 
 
 def user_now(user) -> datetime:
@@ -113,31 +121,29 @@ def sub_active(user) -> bool:
 def ensure_daily_wallet(user) -> None:
     """Начисляет/обнуляет дневной кошелёк по локальной дате юзера.
 
-    Неизрасходованные кредиты сгорают: кошелёк перезаписывается, не складывается
-    (SPEC §4.5). Дни 1-7 и платившие: 10/день; день 8+ неплативший: 2/неделю.
+    Неизрасходованное не накапливается: кошелёк перезаписывается (§5).
+    Дни 1-7 и платившие: 10/день; день 8+ неплативший: 2/неделю.
     """
     today = user_today_str(user)
     week = user_iso_week(user)
 
     if in_trial_week(user) or user.has_ever_paid:
-        # Дневная выдача
         if user.free_daily_date != today:
             amount = DAILY_FREE_AMOUNT
-            # Свежие telegram id: первые сутки 5 вместо 10 (SPEC §4.5)
             if is_new_telegram_id(user.telegram_id) and account_age_days(user) < 1:
                 amount = NEW_ID_DAILY_AMOUNT
             user.free_daily_date = today
             user.credits_free_daily = amount  # перезапись = сгорание остатка
     else:
-        # День 8+, не платил: 2 кредита в неделю (ISO-неделя, сброс в понедельник)
         if user.free_week_date != week:
             user.free_week_date = week
-            user.free_daily_date = today
+            # free_daily_date НЕ трогаем: если юзер оплатит в тот же день,
+            # дневная ветка пере-начислит 10 кредитов сразу (§5).
             user.credits_free_daily = WEEKLY_FREE_AMOUNT
 
 
 def grant_starter(user) -> bool:
-    """Стартовый грант 15 кредитов — ровно один раз, идемпотентно (SPEC §4.3)."""
+    """Стартовый грант 15 кредитов — ровно один раз, идемпотентно (§5)."""
     if user.starter_grant_given:
         return False
     user.starter_grant_given = True
@@ -148,30 +154,47 @@ def grant_starter(user) -> bool:
 
 
 def balance_line(user) -> dict:
-    """Строка баланса для клиента (SPEC §5). Все состояния из таблицы."""
+    """Строки баланса для клиента (§7.1, §7.5).
+
+    line — нейтральная строка главного экрана: БЕЗ слов «кредит» и «черновик» (§7.1).
+    sheet_line — верхняя строка шита пополнения: текущее состояние (§7.5).
+    """
     ensure_daily_wallet(user)
     paid = user.credits_paid or 0
     free = user.credits_free_daily or 0
     age = account_age_days(user)
 
-    if age < DAILY_FREE_DAYS:
-        state = "trial"
-        line = f"{paid} кредитов · сегодня {free} черновиков" if free > 0 \
-            else f"{paid} кредитов · сегодня 0 из {DAILY_FREE_AMOUNT} черновиков"
-    elif user.has_ever_paid:
-        state = "paid_daily"
-        line = f"{paid} кредитов · сегодня {free} черновиков"
+    if age < DAILY_FREE_DAYS or user.has_ever_paid:
+        state = "trial" if age < DAILY_FREE_DAYS else "paid_daily"
+        if free > 0:
+            line = f"Сегодня бесплатно: {free} дизайнов"
+            sheet = f"Осталось {paid} кредитов и {free} дизайнов на сегодня"
+        else:
+            line = "Бесплатные дизайны на сегодня закончились"
+            sheet = f"Осталось {paid} кредитов, бесплатные дизайны на сегодня закончились"
     else:
         state = "weekly"
-        line = f"на этой неделе {free} черновика" if free > 0 \
-            else "на этой неделе 0 черновиков"
+        if free > 0:
+            line = f"На этой неделе бесплатно: {free} дизайна" if free == 2 \
+                else f"На этой неделе бесплатно: {free} дизайнов"
+            sheet = f"Осталось {paid} кредитов и {free} дизайна на этой неделе"
+        else:
+            line = "Бесплатные дизайны на этой неделе закончились"
+            sheet = f"Осталось {paid} кредитов, бесплатные дизайны недели закончились"
 
     exhausted = paid < COST_MEDIUM and free <= 0
     return {
         "line": line,
+        "sheet_line": sheet,
         "state": state,
         "credits_paid": paid,
         "credits_free_daily": free,
         "exhausted": exhausted,
         "trial_days_left": max(0, DAILY_FREE_DAYS - age),
     }
+
+
+def free_low_month_cost(free_low_count_this_month: int) -> float:
+    """Метрика free_low_cost_per_user_month (§5): расчётная себестоимость
+    бесплатных Low-генераций за месяц. Алерт при превышении 25 ₽."""
+    return round(free_low_count_this_month * FREE_LOW_COST_RUB, 2)

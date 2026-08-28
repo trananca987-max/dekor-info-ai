@@ -1,17 +1,19 @@
-// SPEC v2.0: два кошелька, строка баланса, каталог задач/палитр/помещений.
+// PATCH v2.2: два кошелька, строки баланса, каталог стилей/задач.
 
 export interface User {
   telegram_id: number;
   username?: string;
   first_name: string;
-  // Два кошелька (SPEC §4.1)
-  credits_paid: number;        // купленные/бонусные — не сгорают, любая модель
+  // Два кошелька (§5)
+  credits_paid: number;        // купленные/стартовые — не сгорают, любая модель
   credits_free_daily: number;  // бесплатные — только Low, сгорают в 00:00
-  balance_line: string;        // готовая строка баланса (SPEC §5)
+  // §7.1: нейтральная строка главного экрана (без «кредит»/«черновик»)
+  balance_line: string;
+  // §7.5: верхняя строка шита пополнения — текущее состояние
+  sheet_line: string;
   balance_state: 'trial' | 'paid_daily' | 'weekly';
   exhausted: boolean;
   trial_days_left: number;
-  example_gen_used: boolean;
   tier?: string;               // free | pro | premium
   quota_medium?: number;
   quota_low?: number;
@@ -27,7 +29,7 @@ export interface Generation {
   id: number;
   user_id: number;
   style_id: string;
-  display_name: string;        // человекочитаемое название (SPEC §11)
+  display_name: string;        // человекочитаемое название (§7.1)
   category: 'interior' | 'outdoor';
   original_image_url: string;
   result_image_url: string;
@@ -40,31 +42,16 @@ export interface Generation {
   created_at: string;
 }
 
-export interface JobInfo {
+export interface CatalogStyle {
   title: string;
-  sub: string;
-  wave: 'core' | 'wave2';
-  preview: string;
-}
-
-export interface PaletteInfo {
-  name: string;
-  colors: string[];
-  prompt: string;
-}
-
-export interface RoomType {
-  id: string;
-  name: string;
+  tier: 'A' | 'B';
 }
 
 export interface Catalog {
-  jobs: Record<string, JobInfo>;
+  styles: Record<string, CatalogStyle>;
+  jobs: Record<string, { title: string }>;
   job_order: string[];
-  palettes: Record<string, PaletteInfo>;
-  palette_order: string[];
-  room_types: RoomType[];
-  styles: Record<string, { name_ru: string; category: string }>;
+  garden_directions: Record<string, { title: string }>;
   costs: { low: number; medium: number; hd: number; variations: number };
 }
 
@@ -81,6 +68,22 @@ export interface TelegramWebApp {
   ready: () => void;
   expand: () => void;
   close: () => void;
+  colorScheme?: string;
+  themeParams?: Record<string, string>;
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  disableVerticalSwipes?: () => void;
+  onEvent?: (event: string, cb: () => void) => void;
+  CloudStorage?: {
+    getItem: (key: string, cb: (err: unknown, value: string) => void) => void;
+    setItem: (key: string, value: string, cb?: (err: unknown, ok: boolean) => void) => void;
+  };
+  BackButton: {
+    show: () => void;
+    hide: () => void;
+    onClick: (cb: () => void) => void;
+    offClick: (cb: () => void) => void;
+  };
   MainButton: {
     text: string;
     color: string;
