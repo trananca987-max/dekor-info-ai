@@ -1,7 +1,11 @@
-// Главный экран: приветствие, баланс в генерациях, две равноправные категории, лента работ
+// Главный экран SPEC v2.0 §6: задачи вместо стилей (сетка 2×3),
+// строка баланса с сервера (§5), лента «Ваши работы» (§11).
 import { useState, useEffect } from 'react'
-import type { User } from '../types'
-import { DESIGN_COST, API_URL, getUserGenerations } from '../api'
+import type { User, Catalog } from '../types'
+import { API_URL, getUserGenerations, getCatalog, logEvent } from '../api'
+import UploadScreen from './UploadScreen'
+import HistoryScreen from './HistoryScreen'
+import PricingSheet from './PricingSheet'
 
 interface Props {
   user: User
@@ -9,111 +13,110 @@ interface Props {
 }
 
 type Screen =
-  | { name: 'categories' }
-  | { name: 'upload'; category?: 'interior' | 'outdoor' }
+  | { name: 'home' }
+  | { name: 'job'; jobId: string }
   | { name: 'history' }
-  | { name: 'pricing' }
-  | { name: 'howtopay' }
 
 export default function MainScreen({ user, onUserUpdate }: Props) {
-  const [screen, setScreen] = useState<Screen>({ name: 'categories' })
+  const [screen, setScreen] = useState<Screen>({ name: 'home' })
+  const [catalog, setCatalog] = useState<Catalog | null>(null)
+  const [pricingOpen, setPricingOpen] = useState(false)
   const tg = window.Telegram?.WebApp
   const haptic = () => tg?.HapticFeedback.impactOccurred('light')
 
-  const affordable = user.free_generations + Math.floor((user.credits || 0) / DESIGN_COST)
+  useEffect(() => {
+    getCatalog().then(setCatalog).catch(() => {})
+  }, [])
 
-  if (screen.name === 'upload') {
-    return <UploadLazy user={user} category={screen.category}
-      onBack={() => setScreen({ name: 'categories' })} onUserUpdate={onUserUpdate} />
+  // SPEC §3.3: при смене экрана скролл сбрасывается в ноль
+  useEffect(() => {
+    const b = document.querySelector('.app__body')
+    if (b) b.scrollTop = 0
+    window.scrollTo(0, 0)
+  }, [screen.name])
+
+  if (screen.name === 'job') {
+    return (
+      <UploadScreen
+        user={user}
+        jobId={screen.jobId}
+        catalog={catalog}
+        onBack={() => setScreen({ name: 'home' })}
+        onUserUpdate={onUserUpdate}
+        onOpenPricing={() => setPricingOpen(true)}
+      />
+    )
   }
   if (screen.name === 'history') {
-    return <HistoryLazy user={user} onBack={() => setScreen({ name: 'categories' })} />
-  }
-  if (screen.name === 'howtopay') {
-    return <HowToPayLazy user={user} onBack={() => setScreen({ name: 'categories' })} />
-  }
-  if (screen.name === 'pricing') {
-    return (
-      <PricingLazy user={user} onBack={() => setScreen({ name: 'categories' })}
-        onPaid={() => window.location.reload()} />
-    )
+    return <HistoryScreen user={user} onBack={() => setScreen({ name: 'home' })} />
   }
 
   return (
-    <div className="screen">
-      <div className="body">
-        <h1 className="screen" style={{ marginTop: 10 }}>Привет, {user.first_name} 👋</h1>
+    <>
+      <div className="app__body">
+        <h1 className="h" style={{ marginTop: 10 }}>Привет, {user.first_name} 👋</h1>
+        {/* SPEC §5: строка баланса приходит готовой с сервера */}
         <div className="bal">
-          Баланс: <b>{user.credits || 0} кредитов</b>
-          <span className="tiny">·</span>
-          <span>хватит на {affordable} {affordable === 1 ? 'генерацию' : 'генераций'}</span>
-          {user.free_generations > 0 && (
-            <span className="badge b-green">{user.free_generations} бесплатно</span>
-          )}
+          <b>{user.balance_line}</b>
         </div>
 
         <h2 className="card-t" style={{ marginBottom: 10 }}>Что преобразим?</h2>
 
-        {/* Две равноправные категории с реальными рендерами */}
-        <button className="card" style={{ width: '100%', cursor: 'pointer', color: 'inherit', font: 'inherit', textAlign: 'left' }}
-          onClick={() => { haptic(); setScreen({ name: 'upload', category: 'interior' }) }}>
-          <img src="/styles/modern.jpg" alt="" className="im" style={{ height: 120, borderRadius: 0 }} />
-          <div className="pad" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h2 className="card-t">Интерьеры</h2>
-              <p className="sub">Гостиная, спальня, кухня, кабинет</p>
-            </div>
-            <span className="badge b-blue">8 стилей</span>
-          </div>
-        </button>
-
-        <button className="card" style={{ width: '100%', cursor: 'pointer', color: 'inherit', font: 'inherit', textAlign: 'left' }}
-          onClick={() => { haptic(); setScreen({ name: 'upload', category: 'outdoor' }) }}>
-          <img src="/styles/landscape.jpg" alt="" className="im" style={{ height: 120, borderRadius: 0 }} />
-          <div className="pad" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h2 className="card-t">Дом и участок</h2>
-              <p className="sub">Двор, беседка, терраса, сад</p>
-            </div>
-            <span className="badge b-blue">10 стилей</span>
-          </div>
-        </button>
+        {/* SPEC §6: сетка 2×3 карточек-задач с превью «до/после».
+            Вторая волна не показывается — её нет в текущем спринте. */}
+        <div className="jobs">
+          {(catalog?.job_order ?? ['room_design', 'declutter', 'garden']).map((jid) => {
+            const job = catalog?.jobs[jid] ?? FALLBACK_JOBS[jid]
+            if (!job) return null
+            return (
+              <button key={jid} className="job" onClick={() => {
+                haptic()
+                logEvent(user.telegram_id, 'job_selected', { job_id: jid })
+                setScreen({ name: 'job', jobId: jid })
+              }}>
+                <img className="img" src={job.preview} alt="" loading="lazy" />
+                <span className="jt">{job.title}</span>
+                <span className="js">{job.sub}</span>
+              </button>
+            )
+          })}
+        </div>
 
         <WorksStrip userId={user.telegram_id} onOpen={() => { haptic(); setScreen({ name: 'history' }) }} />
       </div>
 
-      <div className="foot">
-        <button className="btn" onClick={() => { haptic(); setScreen({ name: 'upload' }) }}>Новый дизайн</button>
+      <div className="app__foot">
+        {/* SPEC §2: одна первичная синяя кнопка на экран */}
+        <button className="btn" onClick={() => {
+          haptic()
+          logEvent(user.telegram_id, 'job_selected', { job_id: 'room_design' })
+          setScreen({ name: 'job', jobId: 'room_design' })
+        }}>Создать дизайн</button>
         <div className="row" style={{ marginTop: 8 }}>
-          <button className="btn ghost sm" onClick={() => { haptic(); setScreen({ name: 'history' }) }}>История</button>
-          <button className="btn ghost sm" onClick={() => { haptic(); setScreen({ name: 'pricing' }) }}>Пополнить</button>
+          <button className="btn ghost sm" onClick={() => { haptic(); setScreen({ name: 'history' }) }}>Мои работы</button>
+          <button className="btn ghost sm" onClick={() => { haptic(); setPricingOpen(true) }}>Пополнить</button>
         </div>
       </div>
-    </div>
+
+      {pricingOpen && (
+        <PricingSheet
+          user={user}
+          onClose={() => setPricingOpen(false)}
+          onPaid={() => { setPricingOpen(false); window.location.reload() }}
+        />
+      )}
+    </>
   )
 }
 
-// Ленивые импорты экранов — держим главный экран быстрым
-import UploadScreen from './UploadScreen'
-import HistoryScreen from './HistoryScreen'
-import PricingScreen from './PricingScreen'
-import HowToPayScreen from './HowToPayScreen'
-
-function UploadLazy(props: { user: User; category?: 'interior' | 'outdoor';
-  onBack: () => void; onUserUpdate: (u: User) => void }) {
-  return <UploadScreen {...props} />
-}
-function HistoryLazy(props: { user: User; onBack: () => void }) {
-  return <HistoryScreen {...props} />
-}
-function PricingLazy(props: { user: User; onBack: () => void; onPaid: () => void }) {
-  return <PricingScreen {...props} onUpgradeSuccess={props.onPaid} />
-}
-function HowToPayLazy(props: { user: User; onBack: () => void }) {
-  return <HowToPayScreen {...props} />
+// Фолбэк, если каталог ещё не загрузился (тексты дословно из SPEC §6)
+const FALLBACK_JOBS: Record<string, { title: string; sub: string; preview: string }> = {
+  room_design: { title: 'Дизайн комнаты', sub: 'Полный редизайн в выбранном стиле', preview: '/examples/room_design.jpg' },
+  declutter: { title: 'Уборка комнаты', sub: 'Убрать хлам и лишние вещи', preview: '/examples/declutter.jpg' },
+  garden: { title: 'Сад и участок', sub: 'Ландшафт, терраса, зона отдыха', preview: '/examples/garden.jpg' },
 }
 
-// Лента «Ваши работы» — горизонтальный скролл последних результатов
+// Лента «Ваши работы» — горизонтальный скролл последних результатов (SPEC §11)
 import type { Generation } from '../types'
 
 function WorksStrip({ userId, onOpen }: { userId: number; onOpen: () => void }) {
@@ -128,28 +131,25 @@ function WorksStrip({ userId, onOpen }: { userId: number; onOpen: () => void }) 
       <div className="works" onClick={onOpen} style={{ cursor: 'pointer' }}>
         {works.map(w => (
           <div className="w" key={w.id}>
-            {/* SPEC 1.2: превью webp + fallback-плейсхолдер вместо битой иконки */}
-            <img src={`${API_URL}${w.preview_url || w.result_image_url}`} alt=""
-              onError={(e) => {
-                const img = e.target as HTMLImageElement
-                const ph = document.createElement('div')
-                ph.className = 'ph'
-                ph.textContent = getStyleName(w.style_id)
-                img.replaceWith(ph)
-              }} />
-            <div className="tiny">{getStyleName(w.style_id)}</div>
+            {w.preview_url || w.result_image_url ? (
+              <img src={`${API_URL}${w.preview_url || w.result_image_url}`} alt=""
+                onError={(e) => {
+                  const img = e.target as HTMLImageElement
+                  const ph = document.createElement('div')
+                  ph.className = 'ph'
+                  ph.textContent = w.display_name || 'Дизайн комнаты'
+                  img.replaceWith(ph)
+                }} />
+            ) : (
+              <div className="ph" style={{ width: 108, height: 76 }}>
+                {w.display_name || 'Дизайн комнаты'}
+              </div>
+            )}
+            {/* SPEC §11: только человекочитаемые названия */}
+            <div className="tiny">{w.display_name || 'Дизайн комнаты'}</div>
           </div>
         ))}
       </div>
     </>
   )
-}
-
-function getStyleName(id: string): string {
-  const names: Record<string, string> = {
-    modern: 'Современный', scandinavian: 'Скандинавский', loft: 'Лофт',
-    minimalism: 'Минимализм', classic: 'Классика', hightech: 'Хай-тек',
-    provence: 'Прованс', japanese: 'Японский',
-  }
-  return names[id] || id
 }

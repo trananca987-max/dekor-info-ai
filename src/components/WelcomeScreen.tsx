@@ -1,25 +1,25 @@
-// Онбординг — один экран при первом запуске. До результата — никаких решений о деньгах.
-import { User } from '../types';
-import BeforeAfter from './BeforeAfter';
+// Онбординг SPEC v2.0: до результата — никаких решений о деньгах.
+// Стартовый грант: 15 кредитов уже на балансе (§4.3).
+import type { User } from '../types'
+import BeforeAfter from './BeforeAfter'
 
 interface Props {
-  user: User;
-  onSubscribe: () => void;
+  user: User
+  onSubscribe: () => void
 }
 
-export default function WelcomeScreen({ onSubscribe }: Props) {
-  const tg = window.Telegram?.WebApp;
+export default function WelcomeScreen({ user, onSubscribe }: Props) {
+  const tg = window.Telegram?.WebApp
 
-  const handleUpload = () => {
-    tg?.HapticFeedback.impactOccurred('medium');
-    // подписка не блокирует: проверяем мягко, но не прячем кнопку загрузки
-    onSubscribe();
-  };
+  const handleStart = () => {
+    tg?.HapticFeedback.impactOccurred('medium')
+    onSubscribe()
+  }
 
   return (
-    <div className="screen">
-      <div className="body">
-        <h1 className="screen" style={{ marginTop: 14 }}>
+    <>
+      <div className="app__body">
+        <h1 className="h" style={{ marginTop: 14 }}>
           Посмотрите, как будет выглядеть ваша комната
         </h1>
         <p className="sub" style={{ marginBottom: 16 }}>
@@ -33,23 +33,25 @@ export default function WelcomeScreen({ onSubscribe }: Props) {
           labelAfter="После"
         />
 
-        <div className="banner" onClick={handleUpload}>
+        <div className="banner" onClick={handleStart}>
           <span style={{ fontSize: 20 }}>🎁</span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>2 бесплатные генерации</div>
-            <div className="tiny">уже на вашем балансе · без карты</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>
+              {user.credits_paid ?? 15} кредитов уже на балансе
+            </div>
+            <div className="tiny">хватит на 3 дизайна · без карты</div>
           </div>
         </div>
       </div>
 
-      <div className="foot">
-        <button className="btn" onClick={handleUpload}>Загрузить фото комнаты</button>
+      <div className="app__foot">
+        <button className="btn" onClick={handleStart}>Создать дизайн</button>
         <button className="btn ghost sm" style={{ marginTop: 8 }} onClick={() => {
-          tg?.openTelegramLink('https://t.me/stroitelinfo');
+          tg?.openTelegramLink('https://t.me/stroitelinfo')
         }}>
           Посмотреть примеры
         </button>
       </div>
-    </div>
-  );
+    </>
+  )
 }

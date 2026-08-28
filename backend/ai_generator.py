@@ -190,6 +190,36 @@ class AnyModelGenerator:
             print(f"Preview error: {e}")
             return ""
 
+    def make_before_after_collage(self, before_path: str, after_path: str) -> str:
+        """Горизонтальная склейка «до | после» для шеринга (SPEC v2.0 §10)."""
+        try:
+            from PIL import Image, ImageDraw
+            import io
+            a = Image.open(before_path).convert("RGB")
+            b = Image.open(after_path).convert("RGB")
+            h = 800
+            def fit(im):
+                w = int(im.width * h / im.height)
+                return im.resize((w, h), Image.Resampling.LANCZOS)
+            a, b = fit(a), fit(b)
+            gap = 6
+            canvas = Image.new("RGB", (a.width + gap + b.width, h), (13, 14, 17))
+            canvas.paste(a, (0, 0))
+            canvas.paste(b, (a.width + gap, 0))
+            d = ImageDraw.Draw(canvas)
+            # подписи
+            for x, label in ((12, "ДО"), (a.width + gap + 12, "ПОСЛЕ")):
+                d.rounded_rectangle([x, h - 44, x + 90, h - 12], radius=16,
+                                    fill=(0, 0, 0, 160))
+                d.text((x + 14, h - 38), label, fill=(255, 255, 255))
+            out_path = os.path.join(
+                RESULTS_DIR, f"collage_{int(time.time())}_{os.getpid()}.jpg")
+            canvas.save(out_path, "JPEG", quality=88)
+            return out_path
+        except Exception as e:
+            print(f"Collage error: {e}")
+            return ""
+
     def generate(self, image_path: str, style_prompt: str,
                  tier: str = "pro", mode: str = "style") -> tuple[str, float]:
         """

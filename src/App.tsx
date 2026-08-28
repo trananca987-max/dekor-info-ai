@@ -1,10 +1,30 @@
+// SPEC v2.0: каркас .app/.app__body/.app__foot + syncViewport (§3.1).
+// Чёрные экраны устранены: высота синхронизируется с Telegram-вьюпортом асинхронно.
 import { useEffect, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 import './styles.css'
 import { User } from './types'
-import { getUser, createUser, checkSubscription } from './api'
+import { getUser, createUser, checkSubscription, logEvent } from './api'
 import WelcomeScreen from './components/WelcomeScreen'
 import MainScreen from './components/MainScreen'
+
+// === SPEC §3.1: инициализация вьюпорта ===
+function syncViewport() {
+  const tg = window.Telegram?.WebApp as unknown as {
+    viewportStableHeight?: number; viewportHeight?: number; isExpanded?: boolean;
+    expand?: () => void; contentSafeAreaInset?: { top?: number };
+    safeAreaInset?: { bottom?: number };
+  } | undefined
+  if (!tg) return
+  const h = tg.viewportStableHeight || tg.viewportHeight || window.innerHeight
+  const top = tg.contentSafeAreaInset?.top ?? 0
+  const bottom = tg.safeAreaInset?.bottom ?? 0
+  const root = document.documentElement.style
+  root.setProperty('--vh', h + 'px')
+  root.setProperty('--inset-top', top + 'px')
+  root.setProperty('--inset-bottom', bottom + 'px')
+  if (!tg.isExpanded) tg.expand?.()
+}
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
@@ -12,70 +32,80 @@ function App() {
   const [isSubscribed, setIsSubscribed] = useState(false)
 
   useEffect(() => {
-    // Initialize Telegram Web App (SPEC 1.5: шапка/фон под тему, без синей шапки)
-    WebApp.ready()
-    WebApp.expand()
-    
-    // Set theme colors
-    const isDark = WebApp.colorScheme === 'dark'
-    const bg = isDark ? '#0D0E11' : '#FFFFFF'
-    try {
-      WebApp.setHeaderColor(bg)
-      WebApp.setBackgroundColor(bg)
-      // Отключаем вертикальные свайпы, чтобы приложение не закрывалось жестом
-      const tgAny = WebApp as unknown as { disableVerticalSwipes?: () => void }
-      tgAny.disableVerticalSwipes?.()
-    } catch { /* старые версии Telegram */ }
-    
+    const tg = window.Telegram?.WebApp as unknown as {
+      ready: () => void; expand: () => void; disableVerticalSwipes?: () => void;
+      onEvent?: (ev: string, cb: () => void) => void;
+      colorScheme?: string; setHeaderColor?: (c: string) => void;
+      setBackgroundColor?: (c: string) => void;
+    } | undefined
+
+    if (tg) {
+      tg.ready()
+      tg.expand()
+      tg.disableVerticalSwipes?.()
+      // SPEC §3.1: подписки на изменения вьюпорта + отложенные синхронизации
+      tg.onEvent?.('viewportChanged', syncViewport)
+      tg.onEvent?.('safeAreaChanged', syncViewport)
+      tg.onEvent?.('contentSafeAreaChanged', syncViewport)
+      window.addEventListener('orientationchange', () => setTimeout(syncViewport, 250))
+      setTimeout(syncViewport, 100)
+      setTimeout(syncViewport, 500)
+      syncViewport()
+
+      // Шапка/фон под тему Telegram
+      try {
+        const isDark = tg.colorScheme === 'dark'
+        const bg = isDark ? '#0D0E11' : '#0D0E11' // приложение всегда тёмное (SPEC §10: результат всегда тёмный)
+        tg.setHeaderColor?.(bg)
+        tg.setBackgroundColor?.(bg)
+      } catch { /* старые версии */ }
+    }
+
     initUser()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const initUser = async () => {
     try {
       const tgUser = WebApp.initDataUnsafe?.user
-      
+
       if (!tgUser) {
-        // Вне Telegram (браузер/dev): тестовый юзер, чтобы флоу открывался
-        // и локальный прогон UI был возможен. На проде внутри Telegram
-        // initData всегда присутствует и эта ветка не выполняется.
+        // Вне Telegram (браузер/dev): тестовый юзер для локального прогона UI
         const DEV_USER_ID = Number(import.meta.env?.VITE_DEV_USER_ID || 900001)
         try {
           const userData = await getUser(DEV_USER_ID)
           setUser(userData)
         } catch {
           const newUser = await createUser({
-            telegram_id: DEV_USER_ID,
-            username: 'dev_user',
-            first_name: 'Dev'
+            telegram_id: DEV_USER_ID, username: 'dev_user', first_name: 'Dev',
           })
           setUser(newUser)
         }
+        logEvent(DEV_USER_ID, 'app_open')
         return
       }
 
-      // Check subscription first
       const subscribed = await checkSubscription(tgUser.id)
       setIsSubscribed(subscribed)
 
-      // Get or create user
       try {
         const userData = await getUser(tgUser.id)
         setUser(userData)
-      } catch (error) {
-        // User doesn't exist, create new one
+      } catch {
         const newUser = await createUser({
           telegram_id: tgUser.id,
           username: tgUser.username,
-          first_name: tgUser.first_name
+          first_name: tgUser.first_name,
         })
         setUser(newUser)
       }
+      logEvent(tgUser.id, 'app_open')
     } catch (error) {
       console.error('Failed to initialize user:', error)
       WebApp.showPopup({
         title: '❌ Ошибка',
         message: 'Не удалось загрузить данные пользователя',
-        buttons: [{ type: 'ok' }]
+        buttons: [{ type: 'ok' }],
       })
     } finally {
       setLoading(false)
@@ -84,24 +114,17 @@ function App() {
 
   const handleSubscriptionCheck = async () => {
     if (!user) return
-    
     try {
       const subscribed = await checkSubscription(user.telegram_id)
       setIsSubscribed(subscribed)
-      
       if (subscribed) {
         WebApp.HapticFeedback.notificationOccurred('success')
-        WebApp.showPopup({
-          title: '✅ Отлично!',
-          message: 'Подписка подтверждена',
-          buttons: [{ type: 'ok' }]
-        })
       } else {
         WebApp.HapticFeedback.notificationOccurred('error')
         WebApp.showPopup({
           title: '❌ Ошибка',
           message: 'Вы ещё не подписались на канал @stroitelinfo',
-          buttons: [{ type: 'ok' }]
+          buttons: [{ type: 'ok' }],
         })
       }
     } catch (error) {
@@ -110,10 +133,9 @@ function App() {
   }
 
   if (loading) {
-    // SPEC 1.4: skeleton вместо мигающего экрана
     return (
-      <div className="screen">
-        <div className="body">
+      <div className="app">
+        <div className="app__body">
           <div className="skel" style={{ width: '55%', height: 24, marginBottom: 12 }} />
           <div className="skel" style={{ width: '80%', height: 14, marginBottom: 22 }} />
           <div className="skel" style={{ height: 120, borderRadius: 18, marginBottom: 12 }} />
@@ -126,31 +148,27 @@ function App() {
 
   if (!user) {
     return (
-      <div className="container text-center">
-        <div className="error-message">
-          ❌ Не удалось загрузить данные пользователя
+      <div className="app">
+        <div className="app__body" style={{ textAlign: 'center', paddingTop: 60 }}>
+          <div className="err" style={{ marginBottom: 14 }}>❌ Не удалось загрузить данные пользователя</div>
+          <button className="btn" onClick={initUser}>Попробовать снова</button>
         </div>
-        <button className="btn btn-primary" onClick={initUser}>
-          Попробовать снова
-        </button>
       </div>
     )
   }
 
   if (!isSubscribed) {
     return (
-      <WelcomeScreen
-        user={user}
-        onSubscribe={handleSubscriptionCheck}
-      />
+      <div className="app">
+        <WelcomeScreen user={user} onSubscribe={handleSubscriptionCheck} />
+      </div>
     )
   }
 
   return (
-    <MainScreen 
-      user={user}
-      onUserUpdate={setUser}
-    />
+    <div className="app">
+      <MainScreen user={user} onUserUpdate={setUser} />
+    </div>
   )
 }
 

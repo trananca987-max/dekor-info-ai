@@ -1,78 +1,79 @@
+"""Декор Инфо AI Designer — backend (SPEC v2.0).
+
+Все лимиты, цены и списания проверяются на сервере; клиент только отображает.
+Экономика — в economy.py, каталог задач/палитр/помещений — в catalog.py.
+"""
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import Optional
 import os
 import shutil
 import json
-import asyncio
 from dotenv import load_dotenv
 
 from .database import get_db, init_db, SessionLocal, engine
-from .models import User, Generation, Payment
+from .models import User, Generation, Payment, UserPhotoHash, AnalyticsEvent
 from .ai_generator import AIGenerator
 from .telegram_helper import check_subscription, send_message, create_invoice_link, bot
+from . import economy as eco
+from .catalog import JOBS, JOB_ORDER, PALETTES, PALETTE_ORDER, ROOM_TYPES, STYLES, \
+    JOB_PROMPTS, display_name
+from .imghash import phash, is_same
 
 load_dotenv()
 
 app = FastAPI(title="Декор Инфо AI Designer API")
 
-# CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact domains
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize AI generator (anymodel.org: gemini / gpt-image-2)
 ai_gen = AIGenerator()
-
-# Initialize database
 init_db()
 
-# Persistent data dir (Railway volume /data; local dev: current dir)
 DATA_DIR = os.getenv("DATA_DIR", ".")
 UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 RESULTS_DIR = os.path.join(DATA_DIR, "results")
-
-# Create uploads/results directories
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-# Serve generation results statically
 from fastapi.staticfiles import StaticFiles
 app.mount("/results", StaticFiles(directory=RESULTS_DIR), name="results")
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")  # для шторки До/После
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
-# Store generation tasks
 generation_tasks = {}
+
 
 @app.on_event("startup")
 async def startup_event():
-    print("🚀 Декор Инфо AI Designer API started!")
-    print(f"📢 Channel: {os.getenv('CHANNEL_USERNAME')}")
-    # Лёгкая миграция схемы (SQLite ALTER TABLE ADD COLUMN для недостающих колонок)
+    print("🚀 Декор Инфо AI Designer API started! (SPEC v2.0)")
+    # --- Миграция схемы: новые колонки SPEC v2.0 ---
     try:
         from sqlalchemy import inspect, text
         insp = inspect(engine)
         want_users = {
-            "credits": "INTEGER DEFAULT 0",
-            "starter_bonus_granted_at": "DATETIME",
-            "quota_medium": "INTEGER DEFAULT 0",
-            "quota_low": "INTEGER DEFAULT 0",
-            "quota_hd": "INTEGER DEFAULT 0",
-            "daily_free_used": "INTEGER DEFAULT 0",
-            "daily_free_date": "VARCHAR",
-            "monthly_free_used": "INTEGER DEFAULT 0",
-            "monthly_free_month": "VARCHAR",
-            "referred_by": "BIGINT",
+            "credits_paid": "INTEGER DEFAULT 0",
+            "credits_free_daily": "INTEGER DEFAULT 0",
+            "free_daily_date": "VARCHAR",
+            "free_week_date": "VARCHAR",
+            "starter_grant_given": "BOOLEAN DEFAULT 0",
+            "example_gen_used": "BOOLEAN DEFAULT 0",
+            "has_ever_paid": "BOOLEAN DEFAULT 0",
+            "first_seen_at": "DATETIME",
+            "timezone": "VARCHAR DEFAULT 'Europe/Moscow'",
+            "day6_notified_at": "DATETIME",
         }
         want_gens = {
-            "preview_url": "VARCHAR",
-            "quality": "VARCHAR DEFAULT 'medium'",
+            "wallet": "VARCHAR",
+            "job_id": "VARCHAR",
+            "room_type": "VARCHAR",
+            "palette_id": "VARCHAR",
+            "photo_hash": "VARCHAR",
         }
         with engine.begin() as conn:
             have_users = {c["name"] for c in insp.get_columns("users")}
@@ -87,21 +88,49 @@ async def startup_event():
                     print(f"🔧 ALTER generations ADD {col}")
     except Exception as e:
         print(f"⚠️ Schema migration skipped: {e}")
-    # Миграция БД (SPEC 1.3): старая валюта stars → внутренняя credits (1:1), один раз
+
+    # --- Миграция валют SPEC 1.x → v2.0: credits/stars → credits_paid ---
     try:
         db = SessionLocal()
         migrated = 0
-        for u in db.query(User).filter(User.stars > 0).all():
-            u.credits = (u.credits or 0) + u.stars
-            u.stars = 0
-            migrated += 1
+        for u in db.query(User).all():
+            changed = False
+            legacy = (u.credits or 0) + (u.stars or 0)
+            if legacy > 0:
+                u.credits_paid = (u.credits_paid or 0) + legacy
+                u.credits = 0
+                u.stars = 0
+                changed = True
+            # Стартовый грант v2.0: существующие пользователи ещё не получали его
+            if not u.starter_grant_given:
+                eco.grant_starter(u)
+                changed = True
+                migrated += 1
+            if changed:
+                db.commit()
         if migrated:
-            db.commit()
-            print(f"💱 Миграция валют: {migrated} юзеров stars→credits")
+            print(f"🎁 Стартовый грант {eco.STARTER_GRANT} кредитов: {migrated} юзеров")
         db.close()
     except Exception as e:
         print(f"⚠️ Currency migration skipped: {e}")
-    # Автоустановка Telegram webhook (локальная машина не имеет доступа к api.telegram.org)
+
+    # --- Примеры фото (SPEC §7): копируем из бандла фронта в DATA_DIR,
+    # чтобы /api/generate-example работал на volume /data ---
+    try:
+        ex_dst = os.path.join(DATA_DIR, "examples")
+        os.makedirs(ex_dst, exist_ok=True)
+        for src_dir in ("/app/static_dist/examples", os.path.join(os.path.dirname(__file__), "..", "public", "examples")):
+            if os.path.isdir(src_dir):
+                for fn in os.listdir(src_dir):
+                    if fn.endswith(".jpg") and not os.path.exists(os.path.join(ex_dst, fn)):
+                        shutil.copyfile(os.path.join(src_dir, fn), os.path.join(ex_dst, fn))
+                if os.listdir(ex_dst):
+                    print(f"📸 Examples ready: {len(os.listdir(ex_dst))} files in {ex_dst}")
+                break
+    except Exception as e:
+        print(f"⚠️ Examples copy skipped: {e}")
+
+    # --- Webhook ---
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     webhook_url = os.getenv("WEBHOOK_URL")
     if bot_token and webhook_url:
@@ -124,64 +153,122 @@ async def startup_event():
 
         asyncio.create_task(_set_webhook())
 
+
 @app.get("/api/info")
 async def root():
-    return {
-        "message": "Декор Инфо AI Designer API",
-        "version": "1.0.0",
-        "status": "running"
-    }
+    return {"message": "Декор Инфо AI Designer API", "version": "2.0.0", "status": "running"}
+
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
 
+
+# === АНАЛИТИКА (SPEC §15) ===
+
+@app.post("/api/event")
+async def log_event(request: dict, db: Session = Depends(get_db)):
+    """Клиентские события: app_open, viewport_ok, job_selected, generation_started, ..."""
+    user_id = request.get("user_id")
+    event = request.get("event")
+    if not event:
+        raise HTTPException(status_code=400, detail="event is required")
+    db.add(AnalyticsEvent(
+        user_id=user_id,
+        event=str(event)[:64],
+        payload=json.dumps(request.get("payload") or {}, ensure_ascii=False)[:2000],
+    ))
+    db.commit()
+    return {"ok": True}
+
+
+def _notify_day6(user, db):
+    """Уведомление на 6-й день пробной недели — однократно (SPEC §5)."""
+    try:
+        if user.day6_notified_at:
+            return
+        if eco.account_age_days(user) == 5:  # день 6 (день регистрации = день 1)
+            user.day6_notified_at = datetime.utcnow()
+            db.commit()
+            import asyncio
+            asyncio.create_task(send_message(
+                user.telegram_id,
+                "Завтра заканчивается пробная неделя — 10 бесплатных черновиков в день. "
+                "Дальше 2 в неделю, полный доступ от 50 ⭐",
+            ))
+    except Exception as e:
+        print(f"day6 notify error: {e}")
+
+
 # === USER ENDPOINTS ===
 
 @app.post("/api/check-subscription")
 async def check_user_subscription(request: dict):
-    """Check if user is subscribed to channel"""
     user_id = request.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-    
     is_subscribed = await check_subscription(user_id)
     return {"is_subscribed": is_subscribed}
 
+
+def _user_response(user, db) -> dict:
+    """Публичный профиль: кошельки + строка баланса (SPEC §5)."""
+    eco.ensure_daily_wallet(user)
+    _notify_day6(user, db)
+    db.commit()
+    bal = eco.balance_line(user)
+    return {
+        "telegram_id": user.telegram_id,
+        "username": user.username,
+        "first_name": user.first_name,
+        "credits_paid": user.credits_paid or 0,
+        "credits_free_daily": user.credits_free_daily or 0,
+        "balance_line": bal["line"],
+        "balance_state": bal["state"],
+        "exhausted": bal["exhausted"],
+        "trial_days_left": bal["trial_days_left"],
+        "example_gen_used": bool(user.example_gen_used),
+        "tier": user.tier or "free",
+        "quota_medium": user.quota_medium or 0,
+        "quota_low": user.quota_low or 0,
+        "quota_hd": user.quota_hd or 0,
+        "is_subscribed": bool(user.is_subscribed),
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        # совместимость со старым фронтом
+        "credits": user.credits_paid or 0,
+        "free_generations": 0,
+    }
+
+
 @app.get("/api/users/{user_id}")
 async def get_user(user_id: int, db: Session = Depends(get_db)):
-    """Get user by telegram_id"""
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return _user_response(user, db)
+
 
 @app.post("/api/users")
 async def create_user(request: dict, db: Session = Depends(get_db)):
-    """Create new user"""
     telegram_id = request.get("telegram_id")
     username = request.get("username")
     first_name = request.get("first_name")
-    
     if not telegram_id or not first_name:
         raise HTTPException(status_code=400, detail="telegram_id and first_name are required")
-    
-    # Check if user already exists
-    existing_user = db.query(User).filter(User.telegram_id == telegram_id).first()
-    if existing_user:
-        return existing_user
-    
-    # Create new user (SPEC 4: стартовый бонус = 2 бесплатных дизайна Medium)
+
+    existing = db.query(User).filter(User.telegram_id == telegram_id).first()
+    if existing:
+        return _user_response(existing, db)
+
     user = User(
         telegram_id=telegram_id,
         username=username,
         first_name=first_name,
-        credits=0,
-        free_generations=STARTER_FREE_DESIGNS,
         tier="free",
         is_subscribed=False,
+        first_seen_at=datetime.utcnow(),
+        timezone=request.get("timezone") or "Europe/Moscow",
     )
-    # Реферальный код: ?start=ref_<telegram_id> (SPEC 4)
     ref = request.get("ref")
     if ref:
         try:
@@ -191,190 +278,157 @@ async def create_user(request: dict, db: Session = Depends(get_db)):
         except (ValueError, TypeError):
             pass
     db.add(user)
+    db.flush()
+    # Стартовый грант: 15 кредитов, один раз, идемпотентно (SPEC §4.3)
+    eco.grant_starter(user)
     db.commit()
     db.refresh(user)
-    
-    return user
+    return _user_response(user, db)
+
+
+# === КАТАЛОГ (SPEC §6, §8, §9) ===
+
+@app.get("/api/catalog")
+async def catalog():
+    return {
+        "jobs": {jid: JOBS[jid] for jid in JOB_ORDER},
+        "job_order": JOB_ORDER,
+        "palettes": {pid: PALETTES[pid] for pid in PALETTE_ORDER},
+        "palette_order": PALETTE_ORDER,
+        "room_types": ROOM_TYPES,
+        "styles": {sid: {"name_ru": s["name_ru"], "category": s["category"]}
+                   for sid, s in STYLES.items()},
+        "costs": {"low": eco.COST_LOW, "medium": eco.COST_MEDIUM,
+                  "hd": eco.COST_HD, "variations": eco.COST_VARIATIONS},
+    }
+
+
+@app.get("/api/packs")
+async def list_packs():
+    """Каталог пакетов для шторки пополнения (SPEC §12.2)."""
+    return {
+        "order": eco.PACK_ORDER,
+        "packs": {pid: eco.PACKS[pid] for pid in eco.PACK_ORDER},
+        "design_cost": eco.COST_MEDIUM,
+        "hd_cost": eco.COST_HD,
+        "variations_cost": eco.COST_VARIATIONS,
+        "free_tier_note": "15 кредитов сразу, затем 10 черновиков в день первые 7 дней",
+    }
+
 
 # === PHOTO UPLOAD ===
 
 @app.post("/api/upload")
-async def upload_photo(
-    file: UploadFile = File(...),
-    user_id: int = Form(None)
-):
-    """Upload photo for generation"""
+async def upload_photo(file: UploadFile = File(...), user_id: int = Form(None)):
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-    
-    # Validate file type
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(status_code=400, detail="Only JPG, PNG and WebP are supported")
-    
-    # Save file
+
     timestamp = int(datetime.now().timestamp())
     filename = f"{user_id}_{timestamp}_{file.filename}"
     file_path = os.path.join(UPLOADS_DIR, filename)
-    
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
-    # Optimize image
+
     optimized_path = ai_gen.optimize_image(file_path)
-    
-    return {
-        "file_id": filename,
-        "file_path": optimized_path
-    }
 
-# === AI GENERATION ===
+    # Перцептивный хеш для анти-абуза (SPEC §4.5)
+    h = ""
+    try:
+        with open(optimized_path, "rb") as f:
+            h = phash(f.read())
+    except Exception:
+        pass
 
-STYLES = {
-    "modern": {
-        "name_ru": "Современный",
-        "prompt": "modern minimalist interior, clean lines, neutral colors, contemporary furniture, bright natural lighting, white walls, wooden floor",
-        "tier": "free",
-        "category": "interior"
-    },
-    "scandinavian": {
-        "name_ru": "Скандинавский",
-        "prompt": "scandinavian interior design, cozy hygge style, natural materials, light wood furniture, white and pastel colors, soft textiles",
-        "tier": "free",
-        "category": "interior"
-    },
-    "loft": {
-        "name_ru": "Лофт",
-        "prompt": "industrial loft interior, exposed brick walls, metal pipes, concrete floor, vintage furniture, edison bulbs, urban style",
-        "tier": "pro",
-        "category": "interior"
-    },
-    "minimalism": {
-        "name_ru": "Минимализм",
-        "prompt": "pure minimalism interior, white walls, hidden storage, clean surfaces, minimal furniture, zen atmosphere, simple elegance",
-        "tier": "pro",
-        "category": "interior"
-    },
-    "classic": {
-        "name_ru": "Классика",
-        "prompt": "classic elegant interior, ornate moldings, crystal chandelier, antique furniture, rich fabrics, marble details, sophisticated style",
-        "tier": "pro",
-        "category": "interior"
-    },
-    "hightech": {
-        "name_ru": "Хай-тек",
-        "prompt": "high-tech futuristic interior, smart home technology, LED lighting, glass surfaces, chrome details, modern minimalism",
-        "tier": "pro",
-        "category": "interior"
-    },
-    "provence": {
-        "name_ru": "Прованс",
-        "prompt": "french provence interior, lavender colors, vintage furniture, floral patterns, shabby chic style, romantic atmosphere",
-        "tier": "pro",
-        "category": "interior"
-    },
-    "japanese": {
-        "name_ru": "Японский",
-        "prompt": "japanese zen interior, tatami mats, shoji screens, low furniture, natural materials, peaceful minimalism, harmony",
-        "tier": "pro",
-        "category": "interior"
-    },
-    "playground": {
-        "name_ru": "Детская площадка",
-        "prompt": "colorful kids playground, swing set, slides, climbing structures, safe soft ground, fun outdoor equipment, family friendly",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "bbq": {
-        "name_ru": "Гриль-зона",
-        "prompt": "outdoor BBQ area, stone grill, dining table with benches, covered pergola, evening lighting, cozy gathering space",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "pool": {
-        "name_ru": "Бассейн",
-        "prompt": "swimming pool with deck, sun loungers, pool tiles, surrounding landscape, umbrellas, summer relaxation area",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "terrace": {
-        "name_ru": "Терраса",
-        "prompt": "wooden terrace deck, outdoor furniture, potted plants, comfortable seating, string lights, cozy outdoor living",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "gazebo": {
-        "name_ru": "Беседка",
-        "prompt": "garden gazebo, climbing plants, wooden structure, comfortable seating, romantic atmosphere, peaceful retreat",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "greenhouse": {
-        "name_ru": "Теплица",
-        "prompt": "modern greenhouse, organized plant shelves, glass structure, growing vegetables, garden tools, functional design",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "vegetable_garden": {
-        "name_ru": "Огород",
-        "prompt": "organized vegetable garden, raised beds, neat rows of plants, garden paths, healthy vegetables, productive garden",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "landscape": {
-        "name_ru": "Ландшафт",
-        "prompt": "beautiful landscape design, curved paths, variety of plants, decorative trees, garden lighting, harmonious composition",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "patio": {
-        "name_ru": "Патио",
-        "prompt": "cozy patio area, stone paving, outdoor furniture, plants in pots, morning coffee spot, relaxing atmosphere",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    "pergola": {
-        "name_ru": "Пергола",
-        "prompt": "elegant pergola, climbing vines, shaded seating area, wooden beams, romantic garden feature, outdoor dining",
-        "tier": "pro",
-        "category": "outdoor"
-    },
-    # Виртуальные стили для режимов (промпт подставляется в генераторе по mode)
-    "empty_room": {
-        "name_ru": "Пустая комната",
-        "prompt": "",  # используется EMPTY_ROOM_PROMPT из ai_generator
-        "tier": "pro",
-        "category": "interior"
-    },
-    "empty_furnish_base": {
-        "name_ru": "Обставить комнату",
-        "prompt": "",  # furnish-промпт собирается в генераторе
-        "tier": "pro",
-        "category": "interior"
-    }
-}
+    return {"file_id": filename, "file_path": optimized_path, "phash": h}
+
+
+# === СПИСАНИЯ (SPEC §4): единственный источник истины — сервер ===
+
+def _charge(user, quality: str, db) -> tuple:
+    """
+    Списывает оплату за генерацию. Возвращает (wallet, engine_tier, cost).
+    wallet: 'example' | 'free_daily' | 'quota' | 'paid' — куда возвращать при ошибке.
+
+    Правила (SPEC §4.1): credits_free_daily тратится ТОЛЬКО на Low,
+    ни частично, ни как доплата на Medium/HD.
+    """
+    eco.ensure_daily_wallet(user)
+
+    if quality == "low":
+        # 1) Квота подписки Low
+        if eco.sub_active(user) and (user.quota_low or 0) > 0:
+            user.quota_low -= 1
+            return "quota", "free_low", 0
+        # 2) Дневной бесплатный кошелёк — только Low
+        if (user.credits_free_daily or 0) >= eco.COST_LOW:
+            user.credits_free_daily -= eco.COST_LOW
+            return "free_daily", "free_low", eco.COST_LOW
+        # 3) Платный кошелёк
+        if (user.credits_paid or 0) >= eco.COST_LOW:
+            user.credits_paid -= eco.COST_LOW
+            return "paid", "free_low", eco.COST_LOW
+        raise HTTPException(status_code=402, detail="Не хватает кредитов. Пополните баланс")
+
+    if quality == "medium":
+        # 1) Квота подписки Medium
+        if eco.sub_active(user) and (user.quota_medium or 0) > 0:
+            user.quota_medium -= 1
+            return "quota", "premium", 0
+        # 2) Только платный кошелёк (free_daily на Medium не применяется вообще)
+        if (user.credits_paid or 0) >= eco.COST_MEDIUM:
+            user.credits_paid -= eco.COST_MEDIUM
+            return "paid", "premium", eco.COST_MEDIUM
+        raise HTTPException(
+            status_code=402,
+            detail=f"Нужно {eco.COST_MEDIUM} кредитов. Пополните баланс")
+
+    if quality == "hd":
+        if eco.sub_active(user) and user.tier == "premium" and (user.quota_hd or 0) > 0:
+            user.quota_hd -= 1
+            return "quota", "premium_pro", 0
+        if (user.credits_paid or 0) >= eco.COST_HD:
+            user.credits_paid -= eco.COST_HD
+            return "paid", "premium_pro", eco.COST_HD
+        raise HTTPException(
+            status_code=402,
+            detail=f"Нужно {eco.COST_HD} кредитов. Пополните баланс")
+
+    raise HTTPException(status_code=400, detail="Invalid quality")
+
+
+def _refund(user, wallet: str, cost: int, quality: str):
+    """Возврат на тот кошелёк, с которого списано (SPEC §12.4)."""
+    if wallet == "free_daily":
+        user.credits_free_daily = (user.credits_free_daily or 0) + cost
+    elif wallet == "paid":
+        user.credits_paid = (user.credits_paid or 0) + cost
+    elif wallet == "quota":
+        if quality == "low":
+            user.quota_low = (user.quota_low or 0) + 1
+        elif quality == "hd":
+            user.quota_hd = (user.quota_hd or 0) + 1
+        else:
+            user.quota_medium = (user.quota_medium or 0) + 1
+    # 'example' — бесплатно, возвращать нечего
+
 
 async def process_generation(task_id: str, file_path: str, style_prompt: str,
-                             tier: str, generation_id: int, db_session,
+                             engine_tier: str, generation_id: int, db_session,
                              mode: str = "style"):
-    """Background task to process AI generation via anymodel.org"""
+    """Background: генерация через anymodel.org."""
     try:
         generation_tasks[task_id] = {"status": "processing", "progress": 0}
-        
-        # Generate image (anymodel: gemini / gpt-image-2)
-        # Синхронный urllib блокировал бы event loop -> гоняем в отдельном потоке
         import asyncio
         loop = asyncio.get_running_loop()
         result_path, processing_time = await loop.run_in_executor(
             None,
-            lambda: ai_gen.generate_interior(
-                file_path, style_prompt, tier, mode)
-        )
-        
-        # Serve the result statically
+            lambda: ai_gen.generate_interior(file_path, style_prompt, engine_tier, mode))
+
         result_filename = os.path.basename(result_path)
         result_url = f"/results/{result_filename}"
-        
-        # Превью 400×300 webp для истории/главной (SPEC 1.2)
+
         preview_url = None
         try:
             prev_path = ai_gen.make_preview(result_path)
@@ -382,8 +436,7 @@ async def process_generation(task_id: str, file_path: str, style_prompt: str,
                 preview_url = f"/results/{os.path.basename(prev_path)}"
         except Exception as e:
             print(f"Preview generation failed: {e}")
-        
-        # Update database
+
         generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
         if generation:
             generation.result_image_url = result_url
@@ -391,376 +444,309 @@ async def process_generation(task_id: str, file_path: str, style_prompt: str,
             generation.processing_time = processing_time
             generation.status = "completed"
             db_session.commit()
-            # Реферальный бонус (SPEC 4): +10 кредитов пригласившему после ПЕРВОЙ генерации друга
+            # Реферальный бонус: +10 кредитов пригласившему после ПЕРВОЙ генерации друга
             try:
-                gen_user = db_session.query(User).filter(User.telegram_id == generation.user_id).first()
+                gen_user = db_session.query(User).filter(
+                    User.telegram_id == generation.user_id).first()
                 if gen_user and gen_user.referred_by:
                     first_gen_count = db_session.query(Generation).filter(
                         Generation.user_id == gen_user.telegram_id,
-                        Generation.status == "completed",
-                    ).count()
+                        Generation.status == "completed").count()
                     if first_gen_count == 1:
                         referrer = db_session.query(User).filter(
                             User.telegram_id == gen_user.referred_by).first()
                         if referrer:
-                            referrer.credits = (referrer.credits or 0) + BONUS_REWARDS["invite_friend"]
+                            referrer.credits_paid = (referrer.credits_paid or 0) + \
+                                eco.BONUS_REWARDS["invite_friend"]
                             db_session.commit()
-                            print(f"🎁 Реферальный бонус +{BONUS_REWARDS['invite_friend']} кредитов → {referrer.telegram_id}")
+                            print(f"🎁 Рефбонус +{eco.BONUS_REWARDS['invite_friend']} → {referrer.telegram_id}")
             except Exception as e:
                 print(f"Referral bonus error: {e}")
-        
+
         generation_tasks[task_id] = {
-            "status": "completed",
-            "result_url": result_url,
-            "preview_url": preview_url,
-        }
-        
+            "status": "completed", "result_url": result_url, "preview_url": preview_url}
+
     except Exception as e:
         print(f"Generation error: {str(e)}")
-        generation_tasks[task_id] = {
-            "status": "failed",
-            "error": str(e)
-        }
-        
-        # Update database + возврат списания (SPEC 4: за неудачную генерацию +3 кредита)
+        generation_tasks[task_id] = {"status": "failed", "error": str(e)}
         generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
         if generation:
             generation.status = "failed"
             generation.error_message = str(e)
-            user = db_session.query(User).filter(User.telegram_id == generation.user_id).first()
-            if user and (generation.cost_stars or 0) > 0:
-                # платная генерация упала: вернуть стоимость + бонус 3 кредита
-                user.credits = (user.credits or 0) + generation.cost_stars + FAILED_GEN_REFUND
+            user = db_session.query(User).filter(
+                User.telegram_id == generation.user_id).first()
+            if user:
+                # Возврат на исходный кошелёк (SPEC §12.4)
+                _refund(user, generation.wallet or "paid",
+                        generation.cost_stars or 0, generation.quality or "medium")
             db_session.commit()
 
 
-# === Экономика по SPEC_decor_ai (28.08) + правка Андрея: стартовый бонус = 2 бесплатных дизайна ===
-# Валюты: ⭐ — внешняя (платят), кредиты — внутренняя (пользуются). Слово «звёзды» — только на экране оплаты.
-DESIGN_COST = 5          # базовая генерация Medium — 5 кредитов
-HD_COST = 15             # «Улучшить в HD» (GPT Image 2) — 15 кредитов
-VARIATIONS_COST = 10     # «Ещё 3 варианта» (Medium ×3) — 10 кредитов
-EDIT_OBJECT_COST = 5     # «Изменить деталь» — 5 кредитов
-FINAL_RENDER_COST = 5    # черновик (Low) → финальный рендер (Medium) — 5 кредитов
+# === GENERATION (SPEC §6-9) ===
 
-# Бесплатные лимиты (SPEC 4): первые 2 дизайна Medium без вотермарки (решение Андрея),
-# далее 2 черновика Low в день с вотермаркой, потолок 30/мес, аккаунты <7 дней — 1/день.
-STARTER_FREE_DESIGNS = 2
-DAILY_FREE_LIMIT = 2
-DAILY_FREE_LIMIT_NEW_ACCOUNT = 1   # возраст аккаунта < 7 дней
-MONTHLY_FREE_CAP = 30
+def _build_prompt(job_id: str, style_id: str, palette_id=None, room_type=None) -> str:
+    """Собирает промпт: задача + стиль + тип помещения + палитра."""
+    if job_id == "declutter":
+        return JOB_PROMPTS["declutter"]
+    style = STYLES.get(style_id, {})
+    parts = [style.get("prompt", "modern interior design")]
+    rt = next((r["name"] for r in ROOM_TYPES if r["id"] == room_type), None)
+    if rt:
+        room_en = {"Гостиная": "living room", "Спальня": "bedroom", "Кухня": "kitchen",
+                   "Ванная": "bathroom", "Детская": "kids room", "Прихожая": "hallway",
+                   "Балкон": "balcony", "Кабинет": "home office", "Гардеробная": "walk-in wardrobe",
+                   "Кофейня": "coffee shop", "Ресторан": "restaurant", "Офис": "office",
+                   "Салон красоты": "beauty salon", "Игровая комната": "playroom",
+                   "Мансарда": "attic", "Гараж": "garage"}.get(rt, "room")
+        parts.append(f"This is a {room_en}.")
+    pal = PALETTES.get(palette_id or "")
+    if pal and pal["prompt"]:
+        parts.append(pal["prompt"])
+    parts.append("Keep the room structure, windows and layout unchanged.")
+    return " ".join(parts)
 
-# Пакеты и подписки (SPEC 4): цена в ⭐, начисление в кредитах
-PACKS = {
-    "pack_s":      {"credits": 60,  "price": 60,  "title": "60 кредитов",
-                    "desc": "12 дизайнов Medium", "badge": None, "kind": "pack"},
-    "pack_m":      {"credits": 200, "price": 160, "title": "200 кредитов −20%",
-                    "desc": "40 дизайнов Medium", "badge": "Выгодно", "kind": "pack"},
-    "sub_pro":     {"credits": 0,   "price": 149, "title": "PRO · 149 ⭐/мес",
-                    "desc": "40 Medium + 200 черновиков Low", "badge": "Популярный", "kind": "sub",
-                    "quota": {"medium": 40, "low": 200, "hd": 0}},
-    "sub_premium": {"credits": 0,   "price": 299, "title": "PREMIUM · 299 ⭐/мес",
-                    "desc": "20 HD + 50 Medium + 250 Low", "badge": "Лучшая цена за дизайн", "kind": "sub",
-                    "quota": {"medium": 50, "low": 250, "hd": 20}},
-}
-PACK_ORDER = ["pack_s", "pack_m", "sub_pro", "sub_premium"]
-
-# Бонусы (SPEC 4): друг +10 кредитов после первой генерации приглашённого (макс 5/мес),
-# канал +5 разово, возврат при неудачной генерации.
-BONUS_REWARDS = {
-    "invite_friend": 10,
-    "subscribe_channel": 5,
-}
-FRIEND_BONUS_MONTHLY_CAP = 5
-FAILED_GEN_REFUND = 3
-
-
-def _today_str() -> str:
-    from datetime import date
-    return date.today().isoformat()
-
-
-def _month_str() -> str:
-    from datetime import date
-    return date.today().strftime("%Y-%m")
-
-
-def _account_age_days(user) -> int:
-    if not user.created_at:
-        return 999
-    try:
-        return (datetime.utcnow() - user.created_at.replace(tzinfo=None)).days
-    except Exception:
-        return 999
-
-
-def _daily_free_left(user) -> int:
-    """Сколько бесплатных черновиков осталось сегодня."""
-    limit = DAILY_FREE_LIMIT if _account_age_days(user) >= 7 else DAILY_FREE_LIMIT_NEW_ACCOUNT
-    if user.daily_free_date != _today_str():
-        return limit
-    return max(0, limit - (user.daily_free_used or 0))
-
-
-def _monthly_free_left(user) -> int:
-    if user.monthly_free_month != _month_str():
-        return MONTHLY_FREE_CAP
-    return max(0, MONTHLY_FREE_CAP - (user.monthly_free_used or 0))
-
-
-def _use_daily_free(user):
-    if user.daily_free_date != _today_str():
-        user.daily_free_date = _today_str()
-        user.daily_free_used = 0
-    user.daily_free_used = (user.daily_free_used or 0) + 1
-    if user.monthly_free_month != _month_str():
-        user.monthly_free_month = _month_str()
-        user.monthly_free_used = 0
-    user.monthly_free_used = (user.monthly_free_used or 0) + 1
-
-
-def _sub_active(user) -> bool:
-    if user.tier in ("pro", "premium") and user.tier_expires_at:
-        try:
-            exp = user.tier_expires_at.replace(tzinfo=None) if user.tier_expires_at.tzinfo else user.tier_expires_at
-            return exp > datetime.utcnow()
-        except Exception:
-            return False
-    return False
-
-
-def _charge_for_design(user) -> tuple[str, str]:
-    """
-    Списывает оплату за дизайн. Возвращает (charge_type, engine_tier).
-    charge_type: 'free' (стартовые 2 Medium) | 'free_draft' (дневной Low-черновик)
-               | 'quota' (из подписки) | 'credits' (5 кредитов, Medium).
-    Маршрутизация моделей — SPEC 5. Бросает 402, если платить нечем.
-    """
-    # 1) Стартовый бонус: 2 бесплатных дизайна Medium без вотермарки (решение Андрея)
-    if user.free_generations and user.free_generations > 0:
-        user.free_generations -= 1
-        if not user.starter_bonus_granted_at:
-            user.starter_bonus_granted_at = datetime.utcnow()
-        return "free", "premium"  # Medium
-
-    # 2) Квота подписки: сначала Medium, потом Low-черновики
-    if _sub_active(user):
-        if (user.quota_medium or 0) > 0:
-            user.quota_medium -= 1
-            return "quota", "premium"  # Medium
-        if (user.quota_low or 0) > 0:
-            user.quota_low -= 1
-            return "quota", "free_low"  # Low + вотермарка
-
-    # 3) Ежедневные бесплатные черновики Low (2/день, потолок 30/мес)
-    if _daily_free_left(user) > 0 and _monthly_free_left(user) > 0:
-        _use_daily_free(user)
-        return "free_draft", "free_low"  # Low + вотермарка
-
-    # 4) Кредиты: 5 кредитов = Medium
-    if (user.credits or 0) >= DESIGN_COST:
-        user.credits -= DESIGN_COST
-        return "credits", "premium"  # Medium
-
-    raise HTTPException(
-        status_code=402,
-        detail="Не хватает кредитов. Пополните баланс — пакеты от 60 ⭐"
-    )
-
-
-def _refund_design(user, charge_type: str, engine_tier: str):
-    """Возврат списания при ошибке запуска."""
-    if charge_type == "free":
-        user.free_generations = (user.free_generations or 0) + 1
-    elif charge_type == "free_draft":
-        user.daily_free_used = max(0, (user.daily_free_used or 1) - 1)
-        user.monthly_free_used = max(0, (user.monthly_free_used or 1) - 1)
-    elif charge_type == "quota":
-        if engine_tier == "free_low":
-            user.quota_low = (user.quota_low or 0) + 1
-        else:
-            user.quota_medium = (user.quota_medium or 0) + 1
-    else:
-        user.credits = (user.credits or 0) + DESIGN_COST
-
-
-def _today_count(db, user_id: int) -> int:
-    """Сколько генераций юзер сделал сегодня."""
-    from datetime import date
-    today_start = datetime.combine(date.today(), datetime.min.time())
-    return db.query(Generation).filter(
-        Generation.user_id == user_id,
-        Generation.created_at >= today_start,
-        Generation.status.in_(["pending", "processing", "completed"]),
-    ).count()
 
 @app.post("/api/generate")
-async def generate_design(
-    request: dict,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
-    """Start AI design generation. SPEC 5: free (2 Medium новичку) / free_draft (Low) / quota / credits."""
+async def generate_design(request: dict, background_tasks: BackgroundTasks,
+                          db: Session = Depends(get_db)):
+    """Запуск генерации. SPEC v2.0: задача → тип помещения → стиль → палитра.
+
+    quality: 'low' (черновик, 1 кредит) | 'medium' (5 кредитов).
+    Анти-абуз (§4.5): повтор того же фото не сжигает лимит — возвращается
+    ранее сгенерированный результат.
+    """
     user_id = request.get("user_id")
     file_id = request.get("file_id")
-    style_id = request.get("style_id")
-    mode = request.get("mode", "style")  # style | empty | furnish
-    
-    if not all([user_id, file_id, style_id]):
-        raise HTTPException(status_code=400, detail="Missing required fields")
-    if mode not in ("style", "empty", "furnish"):
-        raise HTTPException(status_code=400, detail="Invalid mode")
-    
-    # Get style prompt (для empty — стиль не нужен, берём EMPTY_ROOM_PROMPT внутри генератора)
-    style = STYLES.get(style_id)
-    if not style:
+    style_id = request.get("style_id", "modern")
+    job_id = request.get("job_id", "room_design")
+    room_type = request.get("room_type")
+    palette_id = request.get("palette_id")
+    quality = request.get("quality", "medium")
+    photo_hash = request.get("phash") or ""
+
+    if not user_id or not file_id:
+        raise HTTPException(status_code=400, detail="user_id and file_id are required")
+    if job_id not in JOBS:
+        raise HTTPException(status_code=400, detail="Invalid job_id")
+    if quality not in ("low", "medium"):
+        raise HTTPException(status_code=400, detail="quality must be low or medium")
+    if style_id not in STYLES and job_id != "declutter":
         raise HTTPException(status_code=400, detail="Invalid style_id")
-    
-    # Get user
+
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Оплата и маршрутизация модели (SPEC 5)
-    charge_type, engine_tier = _charge_for_design(user)
-    db.commit()
-    
-    # Create generation record
-    generation = Generation(
-        user_id=user_id,
-        original_image_url=file_id,
-        style_id=style_id,
-        category=style["category"],
-        cost_stars=DESIGN_COST if charge_type == "credits" else 0,
-        kind="design",
-        quality="low" if engine_tier == "free_low" else "medium",
-        status="pending"
-    )
-    db.add(generation)
-    db.commit()
-    db.refresh(generation)
-    
-    # Generate task ID
-    task_id = f"{user_id}_{generation.id}"
-    
-    # Get file path (может быть _opt версией)
+
+    # Анти-абуз: то же фото уже генерировали за последние 30 дней → вернуть старый результат
+    if photo_hash:
+        cutoff = datetime.utcnow() - timedelta(days=30)
+        hashes = db.query(UserPhotoHash).filter(
+            UserPhotoHash.user_id == user_id,
+            UserPhotoHash.created_at >= cutoff).all()
+        for h in hashes:
+            if is_same(h.phash, photo_hash):
+                old = db.query(Generation).filter(
+                    Generation.id == h.generation_id,
+                    Generation.status == "completed").first()
+                if old and old.result_image_url:
+                    return {
+                        "task_id": None,
+                        "cached": True,
+                        "generation_id": old.id,
+                        "result_url": old.result_image_url,
+                        "preview_url": old.preview_url,
+                        "quality": old.quality,
+                        "note": "Это фото уже обрабатывали — вот готовый результат",
+                    }
+
+    # Путь к файлу
     file_path = os.path.join(UPLOADS_DIR, file_id)
     if not os.path.exists(file_path):
         opt_path = file_path.rsplit(".", 1)[0] + "_opt.jpg"
         if os.path.exists(opt_path):
             file_path = opt_path
         else:
-            _refund_design(user, charge_type, engine_tier)
-            db.commit()
             raise HTTPException(status_code=404, detail="Uploaded file not found")
-    
-    # Start background generation
-    background_tasks.add_task(
-        process_generation,
-        task_id,
-        file_path,
-        style["prompt"],
-        engine_tier,
-        generation.id,
-        db,
-        mode
+
+    # Списание (сервер — единственный источник истины)
+    wallet, engine_tier, cost = _charge(user, quality, db)
+    db.commit()
+
+    prompt = _build_prompt(job_id, style_id, palette_id, room_type)
+    mode = "style"
+
+    generation = Generation(
+        user_id=user_id,
+        original_image_url=file_id,
+        style_id=style_id if job_id != "declutter" else "declutter",
+        category=STYLES.get(style_id, {}).get("category", "interior"),
+        cost_stars=cost,
+        wallet=wallet,
+        kind="design",
+        quality=quality,
+        job_id=job_id,
+        room_type=room_type,
+        palette_id=palette_id,
+        photo_hash=photo_hash or None,
+        status="pending",
     )
-    
+    db.add(generation)
+    db.commit()
+    db.refresh(generation)
+
+    if photo_hash:
+        db.add(UserPhotoHash(user_id=user_id, phash=photo_hash, generation_id=generation.id))
+        db.commit()
+
+    task_id = f"{user_id}_{generation.id}"
+    background_tasks.add_task(
+        process_generation, task_id, file_path, prompt, engine_tier,
+        generation.id, db, mode)
+
+    eco.ensure_daily_wallet(user)
+    db.commit()
     return {
         "task_id": task_id,
-        "charge": charge_type,
-        "quality": "low" if engine_tier == "free_low" else "medium",
-        "credits_left": user.credits or 0,
-        "free_left": user.free_generations or 0,
-        "daily_free_left": _daily_free_left(user),
-        # совместимость со старым фронтом
-        "stars_left": user.credits or 0,
+        "cached": False,
+        "charge": wallet,
+        "quality": quality,
+        "cost": cost,
+        "credits_paid_left": user.credits_paid or 0,
+        "credits_free_daily_left": user.credits_free_daily or 0,
+        # совместимость
+        "credits_left": user.credits_paid or 0,
+        "free_left": 0,
+        "daily_free_left": user.credits_free_daily or 0,
+        "stars_left": user.credits_paid or 0,
     }
+
+
+@app.post("/api/generate-example")
+async def generate_example(request: dict, background_tasks: BackgroundTasks,
+                           db: Session = Depends(get_db)):
+    """Генерация по примеру (SPEC §7): бесплатная Medium без вотермарки,
+    не списывает ни один кошелёк, доступна ОДИН раз на пользователя."""
+    user_id = request.get("user_id")
+    example_id = request.get("example_id")
+    style_id = request.get("style_id", "modern")
+
+    if not user_id or not example_id:
+        raise HTTPException(status_code=400, detail="user_id and example_id are required")
+
+    user = db.query(User).filter(User.telegram_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.example_gen_used:
+        raise HTTPException(status_code=409, detail="Пример уже использован")
+
+    example_path = os.path.join(DATA_DIR, "examples", f"{example_id}.jpg")
+    if not os.path.exists(example_path):
+        raise HTTPException(status_code=404, detail="Example photo not found")
+
+    user.example_gen_used = True  # флаг на сервере, до запуска (SPEC §7)
+    db.commit()
+
+    style = STYLES.get(style_id, STYLES["modern"])
+    generation = Generation(
+        user_id=user_id,
+        original_image_url=f"examples/{example_id}.jpg",
+        style_id=style_id,
+        category=style["category"],
+        cost_stars=0,
+        wallet="example",
+        kind="design",
+        quality="medium",
+        job_id="room_design",
+        status="pending",
+    )
+    db.add(generation)
+    db.commit()
+    db.refresh(generation)
+
+    task_id = f"{user_id}_{generation.id}"
+    prompt = f"{style['prompt']}. Keep the room structure, windows and layout unchanged."
+    background_tasks.add_task(
+        process_generation, task_id, example_path, prompt, "premium",
+        generation.id, db, "style")
+
+    return {"task_id": task_id, "charge": "example", "quality": "medium", "cost": 0}
+
 
 @app.post("/api/enhance-hd/{generation_id}")
 async def enhance_hd(generation_id: int, request: dict,
                      background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Апселл после результата: улучшить детали в HD — 15 кредитов. Рерайт той же комнаты gpt-image-2 (SPEC 5)."""
+    """«Улучшить в HD — 15 кредитов» (SPEC §10)."""
     user_id = request.get("user_id")
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     src = db.query(Generation).filter(
         Generation.id == generation_id, Generation.user_id == user_id,
         Generation.status == "completed").first()
     if not src or not src.result_image_url:
         raise HTTPException(status_code=404, detail="Исходная генерация не найдена")
-    
-    # HD из квоты PREMIUM — бесплатно (SPEC 5)
-    from_quota = False
-    if _sub_active(user) and user.tier == "premium" and (user.quota_hd or 0) > 0:
-        user.quota_hd -= 1
-        from_quota = True
-    else:
-        if (user.credits or 0) < HD_COST:
-            raise HTTPException(status_code=402, detail=f"Нужно {HD_COST} кредитов, на балансе {user.credits or 0}")
-        user.credits -= HD_COST
+
+    wallet, engine_tier, cost = _charge(user, "hd", db)
     db.commit()
-    
+
     result_file = src.result_image_url.replace("/results/", "")
     result_path = os.path.join(RESULTS_DIR, result_file)
     if not os.path.exists(result_path):
-        if from_quota:
-            user.quota_hd = (user.quota_hd or 0) + 1
-        else:
-            user.credits = (user.credits or 0) + HD_COST
+        _refund(user, wallet, cost, "hd")
         db.commit()
         raise HTTPException(status_code=404, detail="Файл результата не найден")
-    
+
     generation = Generation(
         user_id=user_id,
         original_image_url=result_file,
         style_id=src.style_id,
         category=src.category,
-        cost_stars=0 if from_quota else HD_COST,
+        cost_stars=cost,
+        wallet=wallet,
         kind="enhance_hd",
         quality="hd",
         parent_id=src.id,
-        status="pending"
+        status="pending",
     )
     db.add(generation)
     db.commit()
     db.refresh(generation)
-    
+
     task_id = f"{user_id}_{generation.id}"
     background_tasks.add_task(
-        process_generation,
-        task_id,
-        result_path,
-        "Enhance this interior design photo: increase sharpness and micro-detail, refine textures and lighting, keep composition, colors and all objects exactly the same. Photorealistic high definition.",
-        "premium_pro",  # gpt-image-2
-        generation.id,
-        db,
-        "enhance",
-    )
-    return {"task_id": task_id, "cost": 0 if from_quota else HD_COST,
-            "credits_left": user.credits or 0, "stars_left": user.credits or 0}
+        process_generation, task_id, result_path,
+        "Enhance this interior design photo: increase sharpness and micro-detail, "
+        "refine textures and lighting, keep composition, colors and all objects exactly "
+        "the same. Photorealistic high definition.",
+        engine_tier, generation.id, db, "enhance")
+    return {"task_id": task_id, "cost": cost,
+            "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
+
 
 @app.post("/api/variations/{generation_id}")
 async def make_variations(generation_id: int, request: dict,
                           background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Апселл: ещё 3 варианта этого стиля — 10 кредитов (Medium ×3, SPEC 5)."""
+    """«Ещё варианты · 10 кредитов» — пакет из 3 Medium (SPEC §4.2, §10)."""
     user_id = request.get("user_id")
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     src = db.query(Generation).filter(
         Generation.id == generation_id, Generation.user_id == user_id,
         Generation.status == "completed").first()
     if not src:
         raise HTTPException(status_code=404, detail="Исходная генерация не найдена")
-    
-    if (user.credits or 0) < VARIATIONS_COST:
-        raise HTTPException(status_code=402, detail=f"Нужно {VARIATIONS_COST} кредитов, на балансе {user.credits or 0}")
-    user.credits -= VARIATIONS_COST
+
+    eco.ensure_daily_wallet(user)
+    if (user.credits_paid or 0) < eco.COST_VARIATIONS:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Нужно {eco.COST_VARIATIONS} кредитов, на балансе {user.credits_paid or 0}")
+    user.credits_paid -= eco.COST_VARIATIONS
     db.commit()
-    
+
     original_file = src.original_image_url
     original_path = os.path.join(UPLOADS_DIR, original_file)
     if not os.path.exists(original_path):
@@ -768,12 +754,11 @@ async def make_variations(generation_id: int, request: dict,
         if os.path.exists(alt):
             original_path = alt
         else:
-            user.credits = (user.credits or 0) + VARIATIONS_COST
+            user.credits_paid = (user.credits_paid or 0) + eco.COST_VARIATIONS
             db.commit()
             raise HTTPException(status_code=404, detail="Исходное фото не найдено")
-    
-    style = STYLES.get(src.style_id, {})
-    style_prompt = style.get("prompt", "modern interior design")
+
+    style_prompt = STYLES.get(src.style_id, {}).get("prompt", "modern interior design")
     tasks = []
     for i in range(3):
         generation = Generation(
@@ -781,65 +766,135 @@ async def make_variations(generation_id: int, request: dict,
             original_image_url=original_file,
             style_id=src.style_id,
             category=src.category,
-            cost_stars=VARIATIONS_COST // 3,
+            cost_stars=eco.COST_VARIATIONS // 3,
+            wallet="paid",
             kind="variations",
             quality="medium",
             parent_id=src.id,
-            status="pending"
+            status="pending",
         )
         db.add(generation)
         db.commit()
         db.refresh(generation)
         task_id = f"{user_id}_{generation.id}"
-        seed_hint = f" Variation {i+1}: vary furniture arrangement, decor accents and camera angle slightly while keeping the same room."
+        seed_hint = (f" Variation {i+1}: vary furniture arrangement, decor accents and "
+                     "camera angle slightly while keeping the same room.")
         background_tasks.add_task(
-            process_generation,
-            task_id,
-            original_path,
+            process_generation, task_id, original_path,
             f"{style_prompt}.{seed_hint} Keep the room structure, windows and layout unchanged.",
-            "premium",  # Medium (SPEC 5)
-            generation.id,
-            db,
-            "style",
-        )
+            "premium", generation.id, db, "style")
         tasks.append(task_id)
-    return {"task_ids": tasks, "cost": VARIATIONS_COST,
-            "credits_left": user.credits or 0, "stars_left": user.credits or 0}
+    return {"task_ids": tasks, "cost": eco.COST_VARIATIONS,
+            "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
+
 
 @app.get("/api/generate/{task_id}")
 async def get_generation_status(task_id: str):
-    """Check generation status"""
     if task_id not in generation_tasks:
         raise HTTPException(status_code=404, detail="Task not found")
-    
     return generation_tasks[task_id]
+
 
 @app.get("/api/users/{user_id}/generations")
 async def get_user_generations(user_id: int, db: Session = Depends(get_db)):
-    """Get user's generation history"""
+    """История работ. Названия — только человекочитаемые (SPEC §11)."""
     generations = db.query(Generation).filter(
         Generation.user_id == user_id,
         Generation.status == "completed"
     ).order_by(Generation.created_at.desc()).all()
-    
-    return generations
+
+    out = []
+    for g in generations:
+        d = {
+            "id": g.id,
+            "user_id": g.user_id,
+            "style_id": g.style_id,
+            "display_name": display_name(g.style_id),
+            "category": g.category,
+            "original_image_url": g.original_image_url,
+            "result_image_url": g.result_image_url,
+            "preview_url": g.preview_url,
+            "cost_stars": g.cost_stars or 0,
+            "kind": g.kind,
+            "quality": g.quality,
+            "job_id": g.job_id,
+            "parent_id": g.parent_id,
+            "created_at": g.created_at.isoformat() if g.created_at else None,
+        }
+        out.append(d)
+    return out
+
+
+@app.post("/api/share/{generation_id}")
+async def share_result(generation_id: int, request: dict, db: Session = Depends(get_db)):
+    """«Поделиться» (SPEC §10): склейка «до/после» + подпись + ссылка на бота в чат."""
+    user_id = request.get("user_id")
+    user = db.query(User).filter(User.telegram_id == user_id).first()
+    gen = db.query(Generation).filter(
+        Generation.id == generation_id, Generation.user_id == user_id,
+        Generation.status == "completed").first()
+    if not gen or not gen.result_image_url:
+        raise HTTPException(status_code=404, detail="Генерация не найдена")
+
+    base_url = os.getenv("PUBLIC_URL", os.getenv("WEBHOOK_URL", "").rsplit("/", 1)[0])
+    result_url = f"{base_url}{gen.result_image_url}"
+    before_url = None
+    if gen.original_image_url and not gen.original_image_url.startswith("examples/"):
+        before_url = f"{base_url}/uploads/{gen.original_image_url}"
+
+    # Склейка до/после на сервере
+    collage_url = result_url
+    try:
+        if before_url:
+            import urllib.request
+            before_path = os.path.join(UPLOADS_DIR, os.path.basename(gen.original_image_url))
+            if not os.path.exists(before_path):
+                before_path = before_path.rsplit(".", 1)[0] + "_opt.jpg"
+            if os.path.exists(before_path):
+                collage_path = ai_gen.make_before_after_collage(
+                    before_path,
+                    os.path.join(RESULTS_DIR, gen.result_image_url.replace("/results/", "")))
+                if collage_path:
+                    collage_url = f"{base_url}/results/{os.path.basename(collage_path)}"
+    except Exception as e:
+        print(f"Collage error: {e}")
+
+    caption = (f"✨ {display_name(gen.style_id)} — сделано в Декор Инфо AI Designer\n"
+               f"Попробуйте сами: https://t.me/DekorInfoAIBot_bot")
+    try:
+        await send_message(user_id, caption)
+        if bot is not None:
+            import urllib.request
+            with urllib.request.urlopen(collage_url, timeout=30) as r:
+                img_bytes = r.read()
+            import io
+            await bot.send_photo(chat_id=user_id, photo=io.BytesIO(img_bytes),
+                                 caption=caption[:1000])
+    except Exception as e:
+        print(f"Share error: {e}")
+        raise HTTPException(status_code=503, detail="Не удалось отправить в чат")
+
+    db.add(AnalyticsEvent(user_id=user_id, event="result_shared",
+                          payload=json.dumps({"generation_id": generation_id})))
+    db.commit()
+    return {"ok": True, "collage_url": collage_url}
+
+
+# === БОНУСЫ (перенесены из SPEC 1.x) ===
 
 @app.post("/api/bonus")
 async def claim_bonus(request: dict, db: Session = Depends(get_db)):
-    """Бонусы (SPEC 4): invite_friend +10 кредитов (макс 5/мес), subscribe_channel +5 разово."""
     user_id = request.get("user_id")
     action = request.get("action")
-    if not user_id or action not in BONUS_REWARDS:
+    if not user_id or action not in eco.BONUS_REWARDS:
         raise HTTPException(status_code=400, detail="user_id and valid action required")
-    
+
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     marker = f"bonus:{action}"
-    
     if action == "subscribe_channel":
-        # Разовый бонус: реальная проверка подписки при каждом запуске (SPEC 4)
         already = db.query(Payment).filter(
             Payment.user_id == user_id, Payment.product == marker).first()
         if already:
@@ -849,17 +904,15 @@ async def claim_bonus(request: dict, db: Session = Depends(get_db)):
             raise HTTPException(status_code=403, detail="Сначала подпишитесь на канал @stroitelinfo")
         user.is_subscribed = True
     elif action == "invite_friend":
-        # Максимум 5 друзей в месяц (SPEC 4)
         month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         count_this_month = db.query(Payment).filter(
             Payment.user_id == user_id,
             Payment.product == marker,
-            Payment.created_at >= month_start,
-        ).count()
-        if count_this_month >= FRIEND_BONUS_MONTHLY_CAP:
+            Payment.created_at >= month_start).count()
+        if count_this_month >= eco.FRIEND_BONUS_MONTHLY_CAP:
             raise HTTPException(status_code=409, detail="Лимит: 5 друзей в месяц")
-    
-    user.credits = (user.credits or 0) + BONUS_REWARDS[action]
+
+    user.credits_paid = (user.credits_paid or 0) + eco.BONUS_REWARDS[action]
     db.add(Payment(
         user_id=user_id,
         telegram_payment_charge_id=f"bonus-{action}-{user_id}-{int(datetime.now().timestamp())}",
@@ -868,96 +921,73 @@ async def claim_bonus(request: dict, db: Session = Depends(get_db)):
         status="completed",
     ))
     db.commit()
-    return {"ok": True, "reward": BONUS_REWARDS[action],
-            "credits_left": user.credits or 0, "stars_left": user.credits or 0}
+    return {"ok": True, "reward": eco.BONUS_REWARDS[action],
+            "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
 
-@app.get("/api/packs")
-async def list_packs():
-    """Каталог пакетов и подписок для шторки пополнения (SPEC 4)."""
-    return {
-        "order": PACK_ORDER,
-        "packs": {pid: PACKS[pid] for pid in PACK_ORDER},
-        "design_cost": DESIGN_COST,
-        "hd_cost": HD_COST,
-        "variations_cost": VARIATIONS_COST,
-        "note": "Купленные кредиты не сгорают. Квота подписки обновляется ежемесячно, переносится максимум на 2 месяца.",
-    }
+
+# === ОПЛАТА (SPEC §12): Telegram Stars, номиналы 50/150/150/350 ===
 
 @app.post("/api/buy")
 async def create_invoice(request: dict):
-    """Create invoice for pack/subscription (pack_s | pack_m | sub_pro | sub_premium)."""
     user_id = request.get("user_id")
     pack_id = request.get("pack", "pack_s")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-    
-    if pack_id not in PACKS:
+    if pack_id not in eco.PACKS:
         raise HTTPException(status_code=400, detail=f"Unknown pack: {pack_id}")
-    pack = PACKS[pack_id]
-    title, description, amount = pack["title"], pack["desc"], pack["price"]
-    
+    pack = eco.PACKS[pack_id]
+
     payload = json.dumps({
         "user_id": user_id,
         "product": pack_id,
         "timestamp": int(datetime.now().timestamp())
     })
-    
     try:
         invoice_url = await create_invoice_link(
-            title=title,
-            description=description,
+            title=pack["title"],
+            description=pack["desc"],
             payload=payload,
             currency="XTR",  # Telegram Stars
-            prices=[{
-                "label": title,
-                "amount": amount
-            }]
+            prices=[{"label": pack["title"], "amount": pack["price"]}]
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
-    
     return {"invoice_url": invoice_url}
+
 
 @app.post("/api/telegram-webhook")
 async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
-    """Handle Telegram webhook for payments"""
     update = await request.json()
-    
-    # Pre-checkout query (approve payment)
+
     if "pre_checkout_query" in update:
-        pre_checkout_query = update["pre_checkout_query"]
-        await bot.answer_pre_checkout_query(
-            pre_checkout_query_id=pre_checkout_query["id"],
-            ok=True
-        )
+        pcq = update["pre_checkout_query"]
+        if bot is not None:
+            await bot.answer_pre_checkout_query(pre_checkout_query_id=pcq["id"], ok=True)
         return {"ok": True}
-    
-    # Successful payment
+
     if "message" in update and "successful_payment" in update["message"]:
         payment_data = update["message"]["successful_payment"]
         user_id = update["message"]["from"]["id"]
         payload = json.loads(payment_data["invoice_payload"])
-        
-        # Store payment
-        payment = Payment(
+
+        db.add(Payment(
             user_id=user_id,
             telegram_payment_charge_id=payment_data["telegram_payment_charge_id"],
             product=payload["product"],
             stars_paid=payment_data["total_amount"],
-            status="completed"
-        )
-        db.add(payment)
-        
-        # Зачисление по купленному пакету/подписке (SPEC 4)
+            status="completed",
+        ))
+
         user = db.query(User).filter(User.telegram_id == user_id).first()
         credited_desc = payload["product"]
         if user:
-            pack = PACKS.get(payload["product"])
+            pack = eco.PACKS.get(payload["product"])
+            user.has_ever_paid = True  # SPEC §4.4: после первой покупки 10/день навсегда
             if pack:
                 if pack["kind"] == "pack":
-                    user.credits = (user.credits or 0) + pack["credits"]
+                    user.credits_paid = (user.credits_paid or 0) + pack["credits"]
                     credited_desc = f"{pack['credits']} кредитов"
-                else:  # подписка
+                else:
                     tier = "pro" if payload["product"] == "sub_pro" else "premium"
                     user.tier = tier
                     user.tier_expires_at = datetime.utcnow() + timedelta(days=30)
@@ -966,30 +996,28 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
                     user.quota_low = q["low"]
                     user.quota_hd = q["hd"]
                     credited_desc = f"Подписка {tier.upper()} на 30 дней"
-        
         db.commit()
-        
-        # Send confirmation
+
+        db.add(AnalyticsEvent(user_id=user_id, event="payment_success",
+                              payload=json.dumps({"product": payload["product"],
+                                                  "stars": payment_data["total_amount"]})))
+        db.commit()
+
         await send_message(
             user_id,
             f"✅ Оплата прошла успешно!\n\n"
             f"Зачислено: {credited_desc}\n"
-            f"Баланс: {user.credits if user else '?'} кредитов\n"
+            f"Баланс: {user.credits_paid if user else '?'} кредитов\n"
             f"Receipt ID: `{payment_data['telegram_payment_charge_id']}`",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
         return {"ok": True}
-    
-    # /paysupport command
+
     if "message" in update and update["message"].get("text") == "/paysupport":
         user_id = update["message"]["from"]["id"]
-        await send_message(
-            user_id,
-            "🛟 По вопросам оплаты обращайтесь: @stroitelinfo"
-        )
+        await send_message(user_id, "🛟 По вопросам оплаты обращайтесь: @stroitelinfo")
         return {"ok": True}
-    
+
     return {"ok": True}
 
 
