@@ -6,7 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#2196F3" />
     <title>Декор Инфо AI Designer</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- SDK Telegram отдаём со своего домена: telegram.org блокируется/тормозит в ряде сетей,
+         блокирующий внешний скрипт вешал белый экран. Файл: public/telegram-web-app.js -->
+    <script src="/telegram-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>
