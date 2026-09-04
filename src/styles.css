@@ -86,8 +86,8 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
 /* ===== Витрина (§7.1): уровень A — 2 колонки, карточки 4:5 ===== */
 .sc{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
 .sc-card{position:relative;border-radius:var(--r-card);overflow:hidden;aspect-ratio:4/5;
-  padding:0;border:0;cursor:pointer;box-shadow:var(--shadow-card);background:var(--surface-2);
-  font:inherit;color:inherit;text-align:left}
+  padding:0;cursor:pointer;background:var(--surface-2);font:inherit;color:inherit;text-align:left;
+  border:1px solid var(--border);box-shadow:none}
 .sc-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 /* §4: растяжка под плашкой обязательна — на светлых кадрах подпись иначе исчезает */
 .card__scrim{position:absolute;inset:auto 0 0 0;height:56%;pointer-events:none;
@@ -924,3 +924,23 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s; }
 .refine-chips .chip.on { background: var(--tg-theme-button-color, #2481CC); border-color: transparent; color: #fff; }
 .refine-chips .chip:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ─── SPEC §10 приёмка: заголовки до 2 строк, обводка по теме, без тени ─── */
+.card__plate .nm,
+.job-card__title,
+.styles-v3__card-title,
+.task-v3__variant-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: balance;
+  font-size: 13px;
+}
+/* карточки задач/направлений — тоже без жёсткой тени */
+.job-card,
+.task-v3__variant,
+.work-card {
+  box-shadow: none !important;
+  border: 1px solid var(--border) !important;
+}
