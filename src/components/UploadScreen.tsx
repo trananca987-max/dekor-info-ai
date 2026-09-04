@@ -26,7 +26,14 @@ interface Props {
   onUserUpdate: (u: User) => void
 }
 
-// ===== SVG-иконки в стилистике Telegram (§4.6) =====
+// ===== Утилиты =====
+export function isFirstWeek(user: User): boolean {
+  if (!user.first_seen_at) return true
+  const first = new Date(user.first_seen_at).getTime()
+  return (Date.now() - first) < 7 * 24 * 3600 * 1000
+}
+
+// ===== SVG-иконки в стилистике Telegram =====
 const IconCamera = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
     strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -333,10 +340,13 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
             <p className="hd-price">{COST_HD} кредитов</p>
           </>
         )}
-        <button className="act" disabled={busy} onClick={() => flow.doUpsell('variations')}>
+        <button className="act" disabled={busy || (flow.variants.length >= (isFirstWeek(user) ? 2 : 1))}
+          onClick={() => flow.doUpsell('variations')}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600 }}>Другой вариант</div>
-            <div className="tiny">Тот же стиль, другая расстановка · осталось {Math.max(0, 2 - flow.variants.length)}</div>
+            <div className="tiny">
+              Тот же стиль, другая расстановка · осталось {Math.max(0, (isFirstWeek(user) ? 2 : 1) - flow.variants.length)}
+            </div>
           </div>
           <span className="p">{COST_VARIATIONS} кредитов</span>
         </button>
