@@ -284,3 +284,630 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
 .banner{display:flex;gap:10px;align-items:center;background:var(--surface);
   border:1px solid var(--border);border-radius:var(--r-card);padding:13px 14px;margin-bottom:14px;
   width:100%;color:inherit;font:inherit;cursor:pointer;text-align:left;box-shadow:var(--shadow-card)}
+/* =========================================================================
+   TASK SCREEN (TaskScreen.tsx) – §3.4
+========================================================================= */
+
+/* Секция «Другие задачи» — горизонтальная карусель */
+.task-v3__section {
+  margin: 24px 0;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+}
+.task-v3__section h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.task-v3__sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+/* Горизонтальная карусель «Другие задачи» */
+.home-v3__carousel {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 4px;
+}
+.home-v3__carousel > * {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-width: 130px;
+  padding-right: 8px;
+}
+
+/* Карточка задачи — сплит-превью «до/после» */
+.job-card {
+  background: var(--surface-2);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  aspect-ratio: 3/4;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-card);
+  transition: transform .15s;
+}
+.job-card:hover { transform: translateY(-2px); }
+.job-card__split {
+  position: relative;
+  aspect-ratio: 3/4;
+  overflow: hidden;
+}
+.job-card__split img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.job-card__divider {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 50%;
+  background: var(--border);
+}
+.job-card__mini {
+  position: absolute;
+  bottom: 4px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.job-card__mini--r { right: 4px; left: auto; }
+.job-card__meta {
+  padding: 6px 8px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+.job-card__title { font-weight: 600; }
+.job-card__hint { color: var(--text-secondary); font-size: 10px; }
+
+/* Карточка задачи: сплит-превью */
+.job-card {
+  background: var(--surface-2);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: transform .15s;
+}
+.job-card:hover { transform: translateY(-2px); }
+
+/* Секция «Ваши работы» — §6.4 */
+.home-v3__works {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.work-card {
+  background: var(--surface-2);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  aspect-ratio: 3/4;
+}
+.work-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.work-card__cap {
+  padding: 4px 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.work-card__cap span {
+  white-space: nowrap;
+}
+.work-card__cap .cap-text {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Safe-area: нижний отступ (iPhone с «чёлкой») */
+@media (max-width: 414px) {
+  .home-v3__section,
+  .home-v3__section,
+  .home-v3__carousel,
+  .home-v3__works {
+    padding-bottom: 20px !important;
+  }
+}
+
+/* =========================================================================
+   6.2.2 Читаемость подписи поверх превью (градиент + блюром)
+========================================================================= */
+.style-card__plate {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56%;
+  background: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.55));
+  color: #fff;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 4px 8px;
+  z-index: 10;
+}
+
+/* =========================================================================
+   6.4 Подпись «Ваши работы» (§6.4)
+========================================================================= */
+.work-card__cap {
+  background: rgba(255,255,255,.85);
+  border-top: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* =========================================================================
+   6.5 Skeleton-состояния
+========================================================================= */
+.skeleton {
+  background: var(--surface-2);
+  border-radius: var(--r-card);
+  animation: pulse 1.5s ease-in-out infinite alternate;
+}
+@keyframes pulse {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+
+/* =========================================================================
+   6.1 Подписи стилей: 2 строки, фиксированная высота, text-wrap: balance
+========================================================================= */
+.style-card__plate,
+.style-card__plate .style-card__title,
+.style-card__card__plate,
+.job-card__meta,
+.work-card__cap {
+  max-height: 34px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  text-wrap: balance;
+}
+
+/* =========================================================================
+   6.2 Границы карточек (§6.2.1) — безопасность на светлом и тёмном фоне
+=========================================================================*/
+.style-card,
+.style-card__card,
+.job-card,
+.work-card {
+  border: 1px solid var(--tg-theme-section-separator-color);
+  background: var(--tg-theme-secondary-bg-color);
+  box-shadow: var(--shadow-card);
+}
+@media (prefers-color-scheme: dark) {
+  .style-card,
+  .styles-v3__card,
+  .job-card,
+  .work-card {
+    border: 1px solid rgba(255,255,255,.12);
+  }
+}
+
+/* =========================================================================
+   6.2.1 Карточка со светлым превью — читаемость
+=========================================================================*/
+.style-card__plate {
+  background: linear-gradient(to bottom, transparent, rgba(0,0,0,.55));
+  color: #fff;
+  text-shadow: 0 0 2px #000;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+/* =========================================================================
+   6.4 Подпись «Ваши работы» (§6.4)
+========================================================================= */
+.work-card__cap {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  line-height: 1.2;
+}
+
+/* =========================================================================
+   6.7 Секция «Ваши работы» — safe-area
+=========================================================================*/
+.home-v3__works {
+  padding-bottom: 20px; /* учитываем safe-area */
+  max-height: 300px; /* ограничение высоты */
+  overflow-y: auto;
+}
+
+/* =========================================================================
+   6.6 Эмодзи → иконки (SVG) — заменяем эмодзи
+=========================================================================*/
+.icon-camera { width: 16px; height: 16px; fill: var(--text-primary); }
+.icon-image { width: 16px; height: 16px; fill: var(--text-primary); }/* =========================================================================
+   TASK SCREEN (TaskScreen.tsx) – §3.4
+========================================================================= */
+.task-v3 { max-width: 100%; padding-bottom: 80px; }
+.task-v3__header { margin-bottom: 16px; }
+.task-v3__title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -.3px;
+}
+.task-v3__hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.task-v3__examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.task-v3__example {
+  background: var(--surface);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+.task-v3__example-split {
+  position: relative;
+  aspect-ratio: 4/5;
+}
+.task-v3__example-split img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.task-v3__example-split img:nth-of-type(2) {
+  clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);
+}
+.task-v3__divider {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255,255,255,.85);
+  transform: translateX(-50%);
+  z-index: 2;
+}
+.task-v3__example-cap {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--surface);
+}
+.task-v3__h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.task-v3__variants { margin-bottom: 24px; }
+.task-v3__variant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.task-v3__variant {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.task-v3__variant-title { font-size: 13px; font-weight: 600; display: block; }
+.task-v3__variant-hint { font-size: 11px; color: var(--text-tertiary); display: block; margin-top: 4px; }
+.task-v3__unchanged { margin-bottom: 24px; }
+.task-v3__unchanged-list {
+  list-style: none;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-radius: var(--r-card);
+  border: 1px solid var(--border);
+}
+.task-v3__unchanged-list li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+.task-v3__cta-fixed {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 16px calc(12px + var(--inset-bottom, 0px));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  z-index: 50;
+}
+.task-v3__cta-btn { width: 100%; }
+
+/* =========================================================================
+   UPLOAD SCREEN (UploadScreen.tsx) – §3.5
+========================================================================= */
+.upload-v3 {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 80px;
+}
+.upload-v3__title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -.3px;
+  margin: 0;
+}
+.upload-v3__hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.upload-v3__preview {
+  width: 100%;
+  aspect-ratio: 4/3;
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.upload-v3__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.upload-v3__preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+.upload-v3__preview-empty svg { width: 48px; height: 48px; opacity: .55; }
+.upload-v3__format-info {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+.upload-v3__shoot-hint {
+  background: var(--surface);
+  border-radius: var(--r-card);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+}
+.upload-v3__shoot-hint-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  display: block;
+}
+.upload-v3__shoot-hint ul { list-style: none; padding: 0; margin: 0; }
+.upload-v3__shoot-hint li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 3px 0;
+  position: relative;
+  padding-left: 16px;
+}
+.upload-v3__shoot-hint li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--primary);
+}
+.upload-v3__shoot-hint-toggle {
+  background: none;
+  border: 0;
+  font-size: 12px;
+  color: var(--primary);
+  cursor: pointer;
+  margin-top: 6px;
+  font-weight: 500;
+  font: inherit;
+  padding: 0;
+}
+.upload-v3__sources {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.upload-v3__src-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.upload-v3__src-btn svg { width: 28px; height: 28px; }
+.upload-v3__src-btn-title { font-size: 13px; font-weight: 600; }
+.upload-v3__src-btn-hint { font-size: 11px; color: var(--text-secondary); }
+
+/* =========================================================================
+   RESULT SCREEN (ResultScreen.tsx) – §3.6
+========================================================================= */
+.result-v3 {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 80px;
+}
+.result-v3__variants {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 4px;
+}
+.result-v3__variant {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  position: relative;
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--surface-2);
+  aspect-ratio: 4/5;
+}
+.result-v3__variant img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.result-v3__variant-count {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0,0,0,.65);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--r-pill);
+}
+.result-v3__swiper-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+.result-v3__swiper-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  opacity: .4;
+}
+.result-v3__swiper-dot--active {
+  opacity: 1;
+  background: var(--primary);
+}
+.result-v3__footnote {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 4px 0;
+}
+.result-v3__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.result-v3__chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.result-v3__chip:active { background: var(--surface-2); }
+.result-v3__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+.result-v3__action {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.result-v3__action svg { width: 22px; height: 22px; }
+.result-v3__compare {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/5;
+  background: var(--surface-2);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+.result-v3__compare img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.result-v3__compare-before {
+  clip-path: inset(0 50% 0 0);
+}
+.result-v3__compare-divider {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: rgba(255,255,255,.85);
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none;
+}
+.result-v3__compare-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.95);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.2);
+  z-index: 3;
+  pointer-events: none;
+}

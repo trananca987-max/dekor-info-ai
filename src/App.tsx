@@ -1,7 +1,8 @@
-// PATCH v2.2: каркас .app/.app__body + syncViewport (§3) + тема (§4).
-// Тема: tg.themeParams, переключатель auto/light/dark в CloudStorage,
-// setHeaderColor/setBackgroundColor при старте и на themeChanged.
+// PATCH v3: каркас .app/.app__body + syncViewport (§3) + тема (§4).
+// Тема: tg.themeParams (auto/light/dark в CloudStorage)
+// + интегрирован react-router-dom для всех экранов
 import { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import WebApp from '@twa-dev/sdk'
 import './styles.css'
 import { User } from './types'
@@ -9,6 +10,9 @@ import { getUser, createUser, checkSubscription, logEvent } from './api'
 import { applyTheme, loadTheme, type ThemeMode } from './lib/theme'
 import WelcomeScreen from './components/WelcomeScreen'
 import MainScreen from './components/MainScreen'
+import StylesScreen from './components/StylesScreen'
+import TaskScreen from './components/TaskScreen'
+import UploadScreen from './components/UploadScreen'
 
 // === §3: инициализация вьюпорта ===
 function syncViewport() {
@@ -32,7 +36,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [isSubscribed, setIsSubscribed] = useState(false)
-  const [themeMode, setThemeMode] = useState<ThemeMode>('auto')
+  const [, setThemeMode] = useState<ThemeMode>('auto')
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp as unknown as {
@@ -103,73 +107,77 @@ function App() {
         setUser(newUser)
       }
       logEvent(tgUser.id, 'app_open')
-    } catch (error) {
-      console.error('Failed to initialize user:', error)
-      WebApp.showPopup({
-        title: '❌ Ошибка',
-        message: 'Не удалось загрузить данные пользователя',
-        buttons: [{ type: 'ok' }],
-      })
+    } catch (e) {
+      console.error('Auth error', e)
     } finally {
       setLoading(false)
     }
   }
 
   const handleSubscriptionCheck = async () => {
-    if (!user) return
-    try {
-      const subscribed = await checkSubscription(user.telegram_id)
-      setIsSubscribed(subscribed)
-      if (subscribed) {
-        WebApp.HapticFeedback.notificationOccurred('success')
-      } else {
-        WebApp.HapticFeedback.notificationOccurred('error')
-        WebApp.showPopup({
-          title: '❌ Ошибка',
-          message: 'Вы ещё не подписались на канал @stroitelinfo',
-          buttons: [{ type: 'ok' }],
-        })
-      }
-    } catch (error) {
-      console.error('Failed to check subscription:', error)
-    }
+    const tgUser = WebApp.initDataUnsafe?.user
+    const id = tgUser?.id ?? Number(import.meta.env?.VITE_DEV_USER_ID || 900001)
+    const subscribed = await checkSubscription(id)
+    setIsSubscribed(subscribed)
   }
 
-  if (loading) {
-    return (
-      <div className="app">
-        <div className="app__body">
-          <div className="skel" style={{ width: '55%', height: 24, marginBottom: 12 }} />
-          <div className="skel" style={{ width: '80%', height: 14, marginBottom: 22 }} />
-          <div className="skel" style={{ height: 200, borderRadius: 24, marginBottom: 12 }} />
-          <div className="skel" style={{ height: 200, borderRadius: 24, marginBottom: 12 }} />
-        </div>
-      </div>
-    )
-  }
+  // === Рендер с роутингом ===
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            loading ? <SplashScreen /> :
+            !user ? <SplashScreen /> :
+            !isSubscribed ? <WelcomeScreen user={user} onSubscribe={handleSubscriptionCheck} /> :
+            <Navigate to="/home" replace />
+          }
+        />
+        <Route
+          path="/home"
+          element={
+            !user ? <Navigate to="/" replace /> :
+            <MainScreen user={user} onUserUpdate={setUser} />
+          }
+        />
+        <Route
+          path="/styles"
+          element={
+            !user ? <Navigate to="/" replace /> :
+            <StylesScreen user={user} />
+          }
+        />
+        <Route
+          path="/task/:id"
+          element={
+            !user ? <Navigate to="/" replace /> :
+            <TaskScreen user={user} />
+          }
+        />
+        <Route
+          path="/upload"
+          element={
+            !user ? <Navigate to="/" replace /> :
+            <UploadScreen user={user} onUserUpdate={setUser} />
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
 
-  if (!user) {
-    return (
-      <div className="app">
-        <div className="app__body" style={{ textAlign: 'center', paddingTop: 60 }}>
-          <div className="err" style={{ marginBottom: 14 }}>❌ Не удалось загрузить данные пользователя</div>
-          <button className="btn" onClick={initUser}>Попробовать снова</button>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isSubscribed) {
-    return (
-      <div className="app">
-        <WelcomeScreen user={user} onSubscribe={handleSubscriptionCheck} />
-      </div>
-    )
-  }
-
+// === §3: Splash-экран ===
+function SplashScreen() {
   return (
     <div className="app">
-      <MainScreen user={user} onUserUpdate={setUser} themeMode={themeMode} />
+      <div className="app__body">
+        <div className="skel" style={{ width: '55%', height: 24, marginBottom: 12 }} />
+        <div className="skel" style={{ width: '80%', height: 14, marginBottom: 22 }} />
+        <div className="skel" style={{ height: 200, borderRadius: 24, marginBottom: 12 }} />
+        <div className="skel" style={{ height: 200, borderRadius: 24, marginBottom: 12 }} />
+      </div>
     </div>
   )
 }

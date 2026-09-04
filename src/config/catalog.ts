@@ -112,11 +112,32 @@ export const STYLES: Style[] = [
   { id: 'boho', title: 'Бохо', hint: 'Текстиль, ротанг, растения, тёплые тона', tier: 'B', cover: 'boho/cover', rooms: [], promptRef: 'boho interior, layered textiles, rattan furniture, many plants, warm earthy tones, eclectic decor' },
   { id: 'country', title: 'Кантри', hint: 'Деревянные стены, уютный деревенский стиль', tier: 'B', cover: 'country/cover', rooms: [], promptRef: 'country house interior, wooden walls, cozy plaid textiles, rustic furniture, warm light' },
   { id: 'chalet', title: 'Шале', hint: 'Брус, каменный камин, тепло', tier: 'B', cover: 'chalet/cover', rooms: [], promptRef: 'alpine chalet interior, rough timber walls, stone fireplace, warm wool textiles, soft light' },
-  { id: 'japandi', title: 'Японский', hint: 'Японский минимализм и скандинавское тепло', tier: 'B', cover: 'japandi/cover', rooms: [], promptRef: 'japandi interior, japanese minimalism with scandinavian warmth, low furniture, natural materials, harmony' },
-  { id: 'quietluxury', title: 'Тихая роскошь', hint: 'Сдержанность и дорогие материалы', tier: 'B', cover: 'quietluxury/cover', rooms: [], promptRef: 'quiet luxury interior, understated expensive materials, cashmere textures, marble, muted refined tones' },
+  {
+    id: 'japandi', title: 'Джапанди', hint: 'Японский минимализм и скандинавское тепло',
+    tier: 'A', cover: 'japandi/living_after',
+    rooms: [
+      { room: 'living', label: 'Гостиная', before: '_base2/living_before', after: 'japandi/living_after' },
+    ],
+    promptRef: 'japandi interior, japanese minimalism with scandinavian warmth, low furniture, natural materials, harmony',
+  },
+  {
+    id: 'quietluxury', title: 'Тихая роскошь', hint: 'Сдержанность и дорогие материалы',
+    tier: 'A', cover: 'quietluxury/living_after',
+    rooms: [
+      { room: 'living', label: 'Гостиная', before: '_base2/living_before', after: 'quietluxury/living_after' },
+    ],
+    promptRef: 'quiet luxury interior, understated expensive materials, cashmere textures, marble, muted refined tones',
+  },
   { id: 'biophilic', title: 'Эко и биофильный', hint: 'Живые растения, натуральные материалы', tier: 'B', cover: 'biophilic/cover', rooms: [], promptRef: 'biophilic interior, many live plants, natural wood, green accents, abundant daylight' },
   { id: 'hitech', title: 'Хай-тек', hint: 'Умный свет, стекло и хром', tier: 'B', cover: 'hitech/cover', rooms: [], promptRef: 'high-tech interior, smart lighting, glass and chrome surfaces, minimal decor, cool tones' },
-  { id: 'contemporary', title: 'Контемпорари', hint: 'Современная мебель, акцентный арт', tier: 'B', cover: 'contemporary/cover', rooms: [], promptRef: 'contemporary interior, modern furniture, neutral palette, accent artwork, soft lighting' },
+  {
+    id: 'contemporary', title: 'Контемпорари', hint: 'Современная мебель, акцентный арт',
+    tier: 'A', cover: 'contemporary/living_after',
+    rooms: [
+      { room: 'living', label: 'Гостиная', before: '_base2/living_before', after: 'contemporary/living_after' },
+    ],
+    promptRef: 'contemporary interior, modern furniture, neutral palette, accent artwork, soft lighting',
+  },
   { id: 'retro', title: 'Ретро-винтаж', hint: '60–70-е, тёплая ностальгия', tier: 'B', cover: 'retro/cover', rooms: [], promptRef: 'retro vintage interior, 1960s-70s furniture, warm colors, patterned textiles, nostalgic mood' },
   { id: 'glam', title: 'Гламур', hint: 'Глянец, хрусталь, бархат', tier: 'B', cover: 'glam/cover', rooms: [], promptRef: 'glamorous interior, glossy surfaces, crystal chandelier, velvet furniture, rich jewel colors' },
   { id: 'industrial', title: 'Индустриальный', hint: 'Бетон, металл, брутальные фактуры', tier: 'B', cover: 'industrial/cover', rooms: [], promptRef: 'industrial interior, concrete walls, metal elements, open pipes, raw textures, loft mood' },
@@ -139,6 +160,8 @@ export const JOBS: Job[] = [
       { id: 'garden_english', label: 'Английский сад', before: '_base/garden_english_before', after: 'garden_english/after', promptRef: 'english garden: lush borders, roses, trimmed hedges, gravel paths, classic garden elegance' },
       { id: 'garden_terrace', label: 'Средиземноморская терраса', before: '_base/garden_terrace_before', after: 'garden_terrace/after', promptRef: 'mediterranean terrace: wooden deck, potted plants, outdoor lounge furniture, pergola with vines, string lights' },
       { id: 'garden_yard', label: 'Минималистичный двор', before: '_base/garden_yard_before', after: 'garden_yard/after', promptRef: 'minimalist yard: clean lawn, geometric paths, ornamental grasses, restrained modern landscaping' },
+      { id: 'garden_landscape', label: 'Ландшафтный сад', before: 'garden_landscape/before', after: 'garden_landscape/after', promptRef: 'landscaped garden: manicured lawn, natural stone walkway, hydrangea borders, ornamental grasses, young trees, golden hour light' },
+      { id: 'garden_lounge', label: 'Вечерняя зона отдыха', before: 'garden_landscape/before', after: 'garden_lounge/after', promptRef: 'evening garden lounge: wooden deck, modular sofa with cushions, fire pit, edison string lights, landscape lighting, blue hour atmosphere' },
     ],
   },
   {
@@ -155,6 +178,11 @@ export const JOBS: Job[] = [
     id: 'facade', title: 'Фасад дома', hint: 'Аккуратный фасад без перестройки',
     before: '_base/facade_before', after: 'facade/after',
     promptRef: 'Renovate the facade of this house: fresh modern exterior finish, clean walls, updated windows and entrance, tidy surroundings. Keep the house shape and structure unchanged. Photorealistic.',
+  },
+  {
+    id: 'facade_lighting', title: 'Вечерний фасад', hint: 'Подсветка дома и участка к вечеру',
+    before: 'facade_renov/before', after: 'facade_lighting/after',
+    promptRef: 'Evening house exterior: architectural facade lighting, warm window glow, landscape path lights, blue hour sky. Keep the house shape and structure unchanged. Photorealistic.',
   },
 ];
 

@@ -20,6 +20,9 @@ export interface User {
   quota_hd?: number;
   is_subscribed: boolean;
   created_at?: string;
+  // §7.2: отсчёт первой недели от первого запуска мини-аппа
+  first_seen_at?: string;
+  total_generations?: number;
   // совместимость со старыми экранами
   credits?: number;
   free_generations?: number;

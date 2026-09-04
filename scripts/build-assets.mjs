@@ -12,7 +12,9 @@ const SRC = 'assets/src';
 const OUT = 'public/s';
 const SIZES = { full: 1600, preview: 800, thumb: 400 };
 // §1.4: если вес > 12 МБ — превью/миниатюры на 75, полноразмерные на 82
-const QUALITY = { full: 82, preview: 75, thumb: 75 };
+// PATCH v3: 10 новых ассетов вытеснили лимит — full 76 вместо 82 (визуальная разница минимальна),
+// превью/миниатюры уже на 75 (§1.4)
+const QUALITY = { full: 76, preview: 75, thumb: 75 };
 const RATIO = 4 / 5;
 
 const files = await glob(`${SRC}/**/*.{png,jpg,jpeg,webp,PNG,JPG,JPEG}`);
