@@ -17,15 +17,22 @@ export default function TaskScreen({ user }: { user: User }) {
   const haptic = () => tg?.HapticFeedback.impactOccurred('light')
   const job = getJob(id || '')
 
-  // §3.4 OPTION: флаг skipExamplesAfterFirst — если true, при повторном входе сразу на /upload
-  // ВАЖНО: пока флаг выключен, всегда показываем экран примеров
+  // §3.4/§8 skipExamples: первый просмотр задачи — показываем примеры,
+  // записываем флаг; повторный вход на тот же job — сразу на /upload.
+  const skipKey = `seen_task_${id}`
+  const alreadySeen = typeof localStorage !== 'undefined' && localStorage.getItem(skipKey) === '1'
 
-  // Аналитика: task_screen_view
   useEffect(() => {
     if (!job) return
-    logEvent(user.telegram_id, 'task_screen_view', { job_id: job.id })
+    logEvent(user.telegram_id, 'task_screen_view', { job_id: job.id, skipped: alreadySeen })
+    if (!alreadySeen) {
+      try { localStorage.setItem(skipKey, '1') } catch { /* private mode */ }
+    }
+    if (alreadySeen) {
+      navigate(`/upload?jobId=${encodeURIComponent(job.id)}`, { replace: true })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job])
+  }, [job?.id])
 
   // §4.3 BackButton — единый владелец (useTelegramChrome)
   useBackButton({ onBack: () => navigate(-1) })
