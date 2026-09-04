@@ -226,6 +226,9 @@ def _user_response(user, db) -> dict:
         "quota_hd": user.quota_hd or 0,
         "is_subscribed": bool(user.is_subscribed),
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        # §7.2: отсчёт первой недели — фронт решает лимит вариантов (2 первую неделю, далее 1)
+        "first_seen_at": user.first_seen_at.isoformat() if user.first_seen_at else None,
+        "total_generations": db.query(Generation).filter(Generation.user_id == user.telegram_id).count(),
         # совместимость со старым фронтом
         "credits": user.credits_paid or 0,
         "free_generations": 0,
@@ -687,6 +690,24 @@ async def make_variations(generation_id: int, request: dict,
             raise HTTPException(status_code=404, detail="Исходное фото не найдено")
 
     style_prompt = _build_prompt(src.job_id or "room_design", src.style_id)
+    refine = request.get("refine")
+    if refine:
+        REFINE_HINTS = {
+            "warm": "make the image warmer: warmer color temperature, golden light",
+            "light": "make the image lighter: brighter, more daylight, lighter surfaces",
+            "less_furn": "remove some furniture, keep only essential pieces, more empty space",
+            "floor": "change the flooring material/color while keeping everything else",
+            "keep_furn": "keep all existing furniture exactly in place, change only style",
+        }
+        hint = REFINE_HINTS.get(refine)
+        if hint:
+            style_prompt = f"{style_prompt}. Additionally: {hint}."
+        try:
+            db.add(AnalyticsEvent(user_id=user_id, event="variations_refine",
+                                  payload=json.dumps({"refine": refine, "generation_id": generation_id}, ensure_ascii=False)[:2000]))
+            db.commit()
+        except Exception:
+            db.rollback()
     tasks = []
     for i in range(3):
         generation = Generation(
