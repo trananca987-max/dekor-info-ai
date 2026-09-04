@@ -90,10 +90,10 @@ export const enhanceHd = async (userId: number, generationId: number): Promise<{
   return response.data
 }
 
-export const makeVariations = async (userId: number, generationId: number): Promise<{
+export const makeVariations = async (userId: number, generationId: number, extra?: { refine?: string }): Promise<{
   task_ids: string[]; cost: number; credits_left: number; stars_left: number
 }> => {
-  const response = await api.post(`/api/variations/${generationId}`, { user_id: userId })
+  const response = await api.post(`/api/variations/${generationId}`, { user_id: userId, ...extra })
   return response.data
 }
 

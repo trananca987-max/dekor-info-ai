@@ -16,7 +16,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '../types'
-import { useUploadFlow } from '../hooks/useUploadFlow'
+import { useUploadFlow, REFINE_CHIPS } from '../hooks/useUploadFlow'
 import { useMainButton, useBackButton } from '../hooks/useTelegramChrome'
 import { COST_LOW, COST_MEDIUM, COST_HD, COST_VARIATIONS, logEvent, API_URL } from '../api'
 import BeforeAfter from './BeforeAfter'
@@ -284,7 +284,8 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
     )
   }
 
-  // ===== Шаг: result (§7.4: тёмный; свайпер/чипы вариантов — Этап 5) =====
+  // ===== Шаг: result (§7.4: тёмный; §3.6 свайпер вариантов + чипсы уточнения) =====
+  const hasVariants = flow.variants.length > 1
   return (
     <>
       <div className="app__body result-dark" style={{ background: '#0F1013' }}>
@@ -295,6 +296,22 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
             labelAfter={flow.resultQuality === 'hd' ? 'HD' : 'После'}
           />
         </div>
+
+        {hasVariants && (
+          <div className="variant-dots" role="tablist" aria-label="Варианты">
+            {flow.variants.map((_, i) => (
+              <button
+                key={i}
+                role="tab"
+                aria-selected={i === flow.variantIdx}
+                className={`variant-dot ${i === flow.variantIdx ? 'on' : ''}`}
+                onClick={() => flow.gotoVariant(i)}
+                aria-label={`Вариант ${i + 1}`}
+              />
+            ))}
+          </div>
+        )}
+
         {flow.chargeLabel && (
           <p className="tiny" style={{ textAlign: 'center', marginBottom: 10 }}>{flow.chargeLabel}</p>
         )}
@@ -319,10 +336,24 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
         <button className="act" disabled={busy} onClick={() => flow.doUpsell('variations')}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600 }}>Другой вариант</div>
-            <div className="tiny">Тот же стиль, другая расстановка</div>
+            <div className="tiny">Тот же стиль, другая расстановка · осталось {Math.max(0, 2 - flow.variants.length)}</div>
           </div>
           <span className="p">{COST_VARIATIONS} кредитов</span>
         </button>
+
+        {/* §3.6: чипсы уточнения — ведут на вариацию с пометкой */}
+        <div className="refine-chips">
+          {REFINE_CHIPS.map(chip => (
+            <button
+              key={chip.id}
+              className={`chip ${flow.refineTag === chip.id ? 'on' : ''}`}
+              disabled={busy}
+              onClick={() => flow.applyRefine(chip.id)}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
 
         <button className="linkline" style={{ color: '#8AB4F8' }} onClick={() => navigate('/home')}>
           Сделать ещё одну комнату

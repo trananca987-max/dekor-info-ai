@@ -19,6 +19,22 @@ import {
   enhanceHd, makeVariations, shareResult, logEvent,
 } from '../api'
 
+/** §3.6: вариант результата (первичная генерация или вариация) */
+export interface Variant {
+  url: string
+  quality: ResultQuality
+  taskId?: string
+}
+
+/** §3.6: чипсы уточнения — пока без серверного refine, ведут на вариацию с пометкой */
+export const REFINE_CHIPS = [
+  { id: 'warm', label: 'Теплее' },
+  { id: 'light', label: 'Светлее' },
+  { id: 'less_furn', label: 'Меньше мебели' },
+  { id: 'floor', label: 'Другой пол' },
+  { id: 'keep_furn', label: 'Сохранить мебель' },
+] as const
+
 export type FlowStep = 'upload' | 'quality' | 'processing' | 'result'
 export type Quality = 'low' | 'medium'
 /** Качество результата может стать 'hd' после апсейла */
@@ -47,6 +63,9 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
   const [quality, setQuality] = useState<Quality>('medium')
   const [resultUrl, setResultUrl] = useState('')
   const [resultQuality, setResultQuality] = useState<ResultQuality>('medium')
+  const [variants, setVariants] = useState<Variant[]>([])      // §3.6: все варианты (генерация + вариации)
+  const [variantIdx, setVariantIdx] = useState(0)              // активный в слайдере
+  const [refineTag, setRefineTag] = useState<string | null>(null) // пометка чипа для аналитики
   const [generationId, setGenerationId] = useState<number | null>(null)
   const [chargeLabel, setChargeLabel] = useState('')
   const [progress, setProgress] = useState(8)
@@ -56,6 +75,9 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const objectUrlRef = useRef('')
+  // snapshot актуального качества результата для замыкания внутри pollTask
+  const resultQualityRef = useRef<ResultQuality>('medium')
+  useEffect(() => { resultQualityRef.current = resultQuality }, [resultQuality])
 
   // Очистка: polling и objectURL
   useEffect(() => () => {
@@ -89,9 +111,15 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
           setProgress(100)
           logEvent(user.telegram_id, 'generation_success', {
             task_id: taskId,
-            result_variants_count: 1, // §7.2/§8: в v3 одна генерация = 1 вариант
+            result_variants_count: variants.length + 1,
           })
           setResultUrl(st.result_url)
+          setVariants(v => {
+            // §3.6: новый вариант в хвост; сбрасываем слайдер на него
+            const idx = v.length
+            setVariantIdx(idx)
+            return [...v, { url: st.result_url!, quality: resultQualityRef.current, taskId }]
+          })
           setBusy(false)
           setStep('result')
           window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
@@ -157,12 +185,30 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
     setPreviewUrl('')
     setFileId('')
     setResultUrl('')
+    setVariants([])
+    setVariantIdx(0)
+    setRefineTag(null)
     setGenerationId(null)
     setChargeLabel('')
     setError('')
     setProgress(8)
     setStep('upload')
   }, [])
+
+  // §3.6: переключение между вариантами в результате
+  const gotoVariant = useCallback((idx: number) => {
+    setVariants(v => {
+      const safe = Math.max(0, Math.min(idx, v.length - 1))
+      setVariantIdx(safe)
+      const vAt = v[safe]
+      if (vAt) {
+        setResultUrl(vAt.url)
+        setResultQuality(vAt.quality)
+        logEvent(user.telegram_id, 'variant_swipe', { idx: safe, generation_id: generationId })
+      }
+      return v
+    })
+  }, [user.telegram_id, generationId])
 
   // ===== Генерация =====
   const start = useCallback(async (forcedQuality?: Quality) => {
@@ -200,6 +246,8 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
         setResultUrl(res.result_url)
         setGenerationId(res.generation_id ?? null)
         setResultQuality((res.quality as Quality) || 'medium')
+        setVariants([{ url: res.result_url, quality: (res.quality as Quality) || 'medium' }])
+        setVariantIdx(0)
         setChargeLabel('Это фото уже обрабатывали')
         setBusy(false)
         setStep('result')
@@ -244,7 +292,7 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
         setStep('processing')
         pollTask(r.task_id)
       } else {
-        const r = await makeVariations(user.telegram_id, generationId)
+        const r = await makeVariations(user.telegram_id, generationId, refineTag ? { refine: refineTag } : undefined)
         onUserUpdate({ ...user, credits_paid: r.credits_left } as User)
         setStep('processing')
         // берём первый вариант из пачки
@@ -252,12 +300,21 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
         if (first) pollTask(first)
         else { setBusy(false); setStep('result') }
       }
-      logEvent(user.telegram_id, 'refine_tap', { kind, generation_id: generationId })
+      logEvent(user.telegram_id, 'refine_tap', { kind, refine: refineTag, generation_id: generationId })
+      setRefineTag(null)
     } catch {
       setError('Не удалось выполнить. Попробуйте позже')
       setBusy(false)
     }
-  }, [generationId, busy, user, onUserUpdate, pollTask])
+  }, [generationId, busy, user, onUserUpdate, pollTask, refineTag])
+
+  // §3.6: чип уточнения — серверного refine-параметра пока нет → пускаем вариацию с пометкой
+  const applyRefine = useCallback((chipId: string) => {
+    if (busy || !generationId) return
+    logEvent(user.telegram_id, 'refine_tap', { kind: 'chip', chip: chipId, generation_id: generationId })
+    setRefineTag(chipId)
+    void doUpsell('variations')
+  }, [busy, generationId, user.telegram_id, doUpsell])
 
   // ===== Скачать / поделиться =====
   const download = useCallback(async () => {
@@ -303,9 +360,10 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
     file, previewUrl, fileId,
     quality, setQuality,
     resultUrl, resultQuality, generationId, chargeLabel,
+    variants, variantIdx, refineTag,
     progress, genStepIdx, genSteps: GEN_STEPS,
     busy, error, setError,
     // действия
-    pick, reset, start, doUpsell, download, share,
+    pick, reset, start, doUpsell, applyRefine, gotoVariant, download, share,
   }
 }
