@@ -30,11 +30,18 @@ html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
 body{background:var(--bg);color:var(--text);
   font:14px/1.45 -apple-system,BlinkMacSystemFont,'Inter','Roboto',sans-serif;
   -webkit-font-smoothing:antialiased}
-#root{height:100%}
+/* §3-fix: высота главного контейнера — от стабильной высоты Telegram
+   (--app-h из viewportStableHeight, см. syncViewport в App.tsx), НЕ 100vh/dvh:
+   на телефоне WebView отдаёт область меньше окна — контент ниже края был
+   физически недосягаем. Только .app__body скроллится, жёсткой высоты у потомков нет. */
+#root{
+  height:var(--app-h, var(--vh, 100vh));
+  display:flex;flex-direction:column;
+}
 
 /* ===== Каркас приложения (§3) ===== */
 .app{
-  height:var(--vh,100dvh);          /* единственное место с dvh */
+  flex:1 1 auto;min-height:0;       /* растёт внутри #root, сам не скроллится */
   display:flex;flex-direction:column;
   padding-top:var(--inset-top,0);
   background:var(--bg);
@@ -313,6 +320,9 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   display: flex;
   overflow-x: auto;
   overflow-y: hidden;
+  touch-action: pan-x;              /* разрешает боковое движение пальцем
+                                       (перехватчики касаний в коде отсутствуют,
+                                       но pan-x страхует от пересечения с вертикальным) */
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   padding: 0 4px;
@@ -777,6 +787,7 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  touch-action: pan-x;
   scroll-snap-type: x mandatory;
   padding-bottom: 4px;
 }

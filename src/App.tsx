@@ -22,10 +22,13 @@ function syncViewport() {
     safeAreaInset?: { bottom?: number };
   } | undefined
   if (!tg) return
+  // viewportStableHeight — реальная высота области; именно её (не viewportHeight)
+  // документация Telegram рекомендует для привязки к низу экрана.
   const h = tg.viewportStableHeight || tg.viewportHeight || window.innerHeight
   const top = tg.contentSafeAreaInset?.top ?? 0
   const bottom = tg.safeAreaInset?.bottom ?? 0
   const root = document.documentElement.style
+  root.setProperty('--app-h', h + 'px')
   root.setProperty('--vh', h + 'px')
   root.setProperty('--inset-top', top + 'px')
   root.setProperty('--inset-bottom', bottom + 'px')
@@ -41,6 +44,7 @@ function App() {
   useEffect(() => {
     const tg = window.Telegram?.WebApp as unknown as {
       ready: () => void; expand: () => void; disableVerticalSwipes?: () => void;
+      isVersionAtLeast?: (v: string) => boolean;
       onEvent?: (ev: string, cb: () => void) => void;
     } | undefined
 
@@ -53,7 +57,14 @@ function App() {
     if (tg) {
       tg.ready()
       tg.expand()
-      tg.disableVerticalSwipes?.()
+      // 7.7+ — штатный запрет сворачивания свайпом вниз (вместо touchmove-перехвата)
+      try {
+        if (typeof tg.isVersionAtLeast === 'function' && tg.isVersionAtLeast('7.7')) {
+          tg.disableVerticalSwipes?.()
+        } else {
+          tg.disableVerticalSwipes?.() // фолбэк: метод опционален, если он есть — вызываем
+        }
+      } catch { /* старые клиенты без disableVerticalSwipes */ }
       // §3: подписки на изменения вьюпорта + отложенные синхронизации
       tg.onEvent?.('viewportChanged', syncViewport)
       tg.onEvent?.('safeAreaChanged', syncViewport)
