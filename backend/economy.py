@@ -94,6 +94,11 @@ def account_age_days(user, now_utc=None) -> int:
         return 999
 
 
+def variants_limit_for(user) -> int:
+    """SPEC §3.6/§7.2: первую неделю — 2 варианта, далее — 1."""
+    return 2 if account_age_days(user) < 7 else 1
+
+
 def is_new_telegram_id(telegram_id: int) -> bool:
     """Свежие id (верхний диапазон монотонно растущего идентификатора)."""
     try:

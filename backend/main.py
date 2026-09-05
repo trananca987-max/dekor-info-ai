@@ -670,6 +670,15 @@ async def make_variations(generation_id: int, request: dict,
     if not src:
         raise HTTPException(status_code=404, detail="Исходная генерация не найдена")
 
+    # SPEC §3.6/§7.2: лимит вариантов — первую неделю 2, далее 1 (серверная защита)
+    variants_made = db.query(Generation).filter(
+        Generation.user_id == user_id, Generation.kind == "variations",
+        Generation.status == "completed").count()
+    if variants_made >= eco.variants_limit_for(user):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Лимит вариантов исчерпан ({variants_made} из {eco.variants_limit_for(user)})")
+
     eco.ensure_daily_wallet(user)
     if (user.credits_paid or 0) < eco.COST_VARIATIONS:
         raise HTTPException(
