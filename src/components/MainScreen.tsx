@@ -112,7 +112,6 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
       {/* «Дизайн комнаты» (§3.1) */}
       <section className="home-v3__section">
         <h2 className="home-v3__h2">Дизайн комнаты</h2>
-        <p className="home-v3__sub">Выберите стиль — фото и описание можно посмотреть до загрузки</p>
 
         <div className="home-v3__grid">
           {popularStyles.map((s) => (

@@ -35,6 +35,7 @@ export default function StylesScreen({ user }: { user: User }) {
     localStorage.getItem('dekor_last_style') || '',
   )
   const groups = useMemo(() => groupStyles(STYLES), [])
+  const selectedStyle = STYLES.find(s => s.id === selectedId)
 
   const openUpload = (id: string) => {
     const last = localStorage.getItem('dekor_last_style')
@@ -46,14 +47,21 @@ export default function StylesScreen({ user }: { user: User }) {
     navigate(`/upload?jobId=room_design&styleId=${encodeURIComponent(id)}`)
   }
 
-  // §4.3: BackButton — назад на главную
-  useBackButton({ onBack: () => navigate('/home') })
+  // §4.3: BackButton — назад на главную. force: true — показываем даже
+  // при прямом входе по ссылке (иначе hardware back закроет приложение).
+  const goBack = () => {
+    const idx = (window.history.state as { idx?: number })?.idx ?? 0
+    if (idx > 0) navigate(-1)
+    else navigate('/home')
+  }
+  useBackButton({ onBack: goBack, force: true })
 
-  // §4.1: MainButton доступен, когда стиль выбран
+  // §4.1 + HIGH-5: MainButton — название стиля, а не группы;
+  // без выбора — hide() (text:'' + enabled:false → скрыта).
   useMainButton({
-    text: selectedId ? `Продолжить · ${STYLES.find(s => s.id === selectedId)?.title ?? ''}` : 'Выберите стиль',
-    enabled: Boolean(selectedId),
-    onClick: () => openUpload(selectedId),
+    text: selectedStyle ? `Продолжить · ${selectedStyle.title}` : '',
+    enabled: Boolean(selectedStyle),
+    onClick: () => selectedStyle && openUpload(selectedStyle.id),
   })
 
   return (

@@ -159,16 +159,11 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
         <p className="upload-v3__hint">Подойдёт любое фото — можно из галереи</p>
 
         {!previewUrl ? (
-          <button
-            className="upload-v3__preview"
-            onClick={() => document.getElementById('upl-gallery')?.click()}
-            aria-label="Выбрать фото"
-          >
+          <div className="upload-v3__preview" aria-label="Превью фото">
             <span className="upload-v3__preview-empty">
               <IconGallery />
-              <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>Выберите фото</span>
             </span>
-          </button>
+          </div>
         ) : (
           <div className="upload-v3__preview">
             <img src={previewUrl} alt="Превью" />

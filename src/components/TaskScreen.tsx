@@ -34,8 +34,15 @@ export default function TaskScreen({ user }: { user: User }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.id])
 
-  // §4.3 BackButton — единый владелец (useTelegramChrome)
-  useBackButton({ onBack: () => navigate(-1) })
+  // §4.3 BackButton — единый владелец (useTelegramChrome).
+  // force: true — показываем даже при прямом входе по ссылке,
+  // иначе hardware back закроет приложение (BLOCKER-2).
+  const goBack = () => {
+    const idx = (window.history.state as { idx?: number })?.idx ?? 0
+    if (idx > 0) navigate(-1)
+    else navigate('/home')
+  }
+  useBackButton({ onBack: goBack, force: true })
 
   // §4.1 MainButton — единый владелец (useTelegramChrome)
   useMainButton({

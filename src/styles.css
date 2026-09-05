@@ -944,3 +944,258 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   box-shadow: none !important;
   border: 1px solid var(--border) !important;
 }
+
+/* =========================================================================
+   HOME V3 (MainScreen.tsx) – §3.1 · восстановлен при фикс-прогоне
+   Базовые правила, которые потерялись при слиянии v2.2 base + v3.
+   Без них элементы расползались и «накладывались» (BLOCKER-1).
+========================================================================= */
+.home-v3 {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-bottom: 90px;
+}
+.home-v3__section {
+  display: flex;
+  flex-direction: column;
+}
+.home-v3__h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -.3px;
+  margin-bottom: 4px;
+}
+.home-v3__sub {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+/* Хедер статуса лимита (§7.1) — кликабельная плашка */
+.home-v3__limit {
+  margin-bottom: 2px;
+}
+.home-v3__limit-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  padding: 12px 14px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.home-v3__limit-lbl {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.home-v3__limit-btn strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-left: auto;
+}
+.home-v3__limit-chev {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* Сетка стилей на главной — 2 колонки (HIGH-3) */
+.home-v3__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+/* Пилюля «Все стили ›» */
+.home-v3__pill {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 9px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+/* ===== StyleCard: карточка популярного стиля (§6.1, §6.2) ===== */
+.style-card {
+  position: relative;              /* точка опоры для plate-скрима */
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.style-card__img {
+  position: relative;
+  aspect-ratio: 4/5;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.style-card__img img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.style-card__badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  padding: 4px 9px;
+  border-radius: var(--r-pill);
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  pointer-events: none;
+}
+/* Скрим-подложка под подписью (§6.2.2) — читаемость на светлых кадрах */
+.style-card__plate {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56%;
+  max-height: none;              /* активное переопределение старого 6.1 (34px) */
+  z-index: 2;
+  padding: 26px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  background: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.68));
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,.55);
+  text-align: center;
+  pointer-events: none;
+}
+.style-card__title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.style-card__hint {
+  font-size: 10.5px;
+  color: rgba(255,255,255,.88);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+/* «Ваши работы» — кнопка-картинка (§6.4) */
+.work-card__btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.work-card__btn img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3/4;
+  object-fit: cover;
+}
+
+/* =========================================================================
+   STYLES SCREEN (StylesScreen.tsx) – §3.2 · восстановлен при фикс-прогоне
+   Сетка 2 колонки, карточки 3:4, компактные (HIGH-3), без наложений (LOW-8)
+========================================================================= */
+.styles-v3 {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 90px;
+}
+.styles-v3__title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -.3px;
+}
+.styles-v3__family {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.styles-v3__family-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--text-tertiary);
+  margin: 2px 2px 0;
+}
+.styles-v3__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.styles-v3__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--r-card);
+  overflow: hidden;              /* LOW-8: белый блок не лезет на углы */
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  aspect-ratio: 3/4;             /* HIGH-3 */
+}
+.styles-v3__card--selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.styles-v3__card-img {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.styles-v3__card-img img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.styles-v3__card-title {
+  display: block;
+  padding: 8px 10px 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+}
