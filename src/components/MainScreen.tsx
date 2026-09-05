@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { User, Generation } from '../types'
 import { getUser, getUserGenerations, logEvent } from '../api'
-import { JOBS, stylesA, type Style, type Job } from '../config/catalog'
+import { JOBS, stylesA, type Style, type Job, getJob } from '../config/catalog'
 import { asset, lqip } from '../lib/assets'
 import { useBackButton } from '../hooks/useTelegramChrome'
 import PricingSheet from './PricingSheet'
@@ -23,8 +23,6 @@ interface Props {
 }
 
 const POPULAR_STYLE_IDS = ['scandi', 'modern', 'classic', 'loft', 'minimal', 'japandi']
-// Общая «до»-комната: все карточки стилей сгенерированы из неё (промт 01, §3.1)
-const ORIGIN_ROOM = '_base/living_before'
 
 export default function MainScreen({ user, onUserUpdate }: Props) {
   const navigate = useNavigate()
@@ -100,20 +98,16 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
         </button>
       </header>
 
-      {/* «Дизайн комнаты» (§3.1) */}
+      {/* «Дизайн комнаты» (§3.1) — HIGH-2: горизонтальная карусель стилей со сплитом до/после
+          (единый паттерн §6.3 с задачами: ~80% вьюпорта, 4:3, подглядывание, точки).
+          HIGH-3: блок «Так выглядит исходная комната» убран — сплит говорит сам за себя.
+          Сетка 2×2 со сплитом не работала: каждая половина ~80px — не читается.
+          Сетка 2×2 БЕЗ сплита остаётся только на /styles, где стилей 20+. */}
       <section className="home-v3__section">
         <h2 className="home-v3__h2">Дизайн комнаты</h2>
+        <p className="home-v3__sub">Скандинавский, лофт, минимализм и другие</p>
 
-        {/* HIGH-5: общая «до»-комната один раз над сеткой — все стили сгенерированы
-            из одной базовой комнаты (промт 01); бейдж на карточках убран */}
-        <div className="origin-room">
-          <div className="origin-room__img">
-            <img src={asset(ORIGIN_ROOM, 'thumb')} alt="Исходная комната" loading="lazy" />
-          </div>
-          <span className="origin-room__label">Так выглядит исходная комната</span>
-        </div>
-
-        <div className="home-v3__grid">
+        <div className="home-v3__carousel home-v3__carousel--styles" role="list">
           {popularStyles.map((s) => (
             <StyleCard
               key={s.id}
@@ -126,6 +120,7 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
             />
           ))}
         </div>
+        <StyleDots count={popularStyles.length} />
 
         <button
           className="home-v3__pill"
@@ -162,29 +157,70 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
       </section>
 
       {/* «Ваши работы» — сразу под хедером для вернувшихся (§3.1) */}
-      {isReturning && <WorksStrip userId={user.telegram_id} />}
+      {isReturning && <WorksStrip userId={user.telegram_id} onOpen={(id) => {
+        haptic()
+        navigate(`/result/${id}`)
+      }} />}
     </div>
   )
 }
 
-// =====================================================================
-// Карточка стиля: фото 4:5, градиент-подложка снизу, заголовок 2 строки
-// (§6.1, §6.2) — без эмодзи, без обрезки слов, бордер по теме.
+// Карточка стиля: HIGH-2 — сплит-превью «до/после» (§6.3, единый паттерн с job-card).
+// На широкой карточке (80% вьюпорта) каждая половина ~165px — сплит читается.
+// На узкой карточке сетки (160px) сплит нечитабельный, поэтому на /styles — обложка.
 function StyleCard({ style, onClick }: { style: Style; onClick: () => void }) {
-  const cover = asset(style.cover, 'preview')
+  const room = style.rooms[0]
+  const beforeSrc = asset(room.before, 'thumb')
+  const afterSrc = asset(room.after, 'thumb')
   return (
-    <button className="style-card" onClick={onClick}>
-      <div
-        className="style-card__img"
-        style={{ background: `url(${lqip(style.cover)}) center/cover` }}
-      >
-        {cover && <img src={cover} alt={style.title} loading="lazy" />}
-        <div className="style-card__plate">
-          <span className="style-card__title">{style.title}</span>
-          <span className="style-card__hint">{style.hint}</span>
-        </div>
+    <button className="job-card style-card-split" onClick={onClick} role="listitem"
+      style={{ background: `url(${lqip(room.before)}) center/cover` }}>
+      <div className="job-card__split">
+        <img src={beforeSrc} alt="" loading="lazy" />
+        <img src={afterSrc} alt="" loading="lazy" />
+        <span className="job-card__divider" aria-hidden />
+        <span className="job-card__mini">до</span>
+        <span className="job-card__mini job-card__mini--r">после</span>
+      </div>
+      <div className="job-card__plate">
+        <span className="job-card__title">{style.title}</span>
+        <span className="job-card__hint">{style.hint}</span>
       </div>
     </button>
+  )
+}
+
+// HIGH-2: точки-индикатор карусели стилей (тот же паттерн, что у JobDots)
+function StyleDots({ count }: { count: number }) {
+  const [active, setActive] = useState(0)
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(`.home-v3__carousel--styles`)
+    if (!el) return
+    const update = () => {
+      const step = el.clientWidth * 0.82
+      const i = Math.round(el.scrollLeft / step)
+      setActive(Math.max(0, Math.min(count - 1, i)))
+    }
+    el.addEventListener('scroll', update, { passive: true })
+    return () => el.removeEventListener('scroll', update)
+  }, [count])
+  if (count <= 1) return null
+  return (
+    <div className="home-v3__dots" role="tablist" aria-label="Страницы стилей">
+      {Array.from({ length: count }).map((_, i) => (
+        <button
+          key={i}
+          className={`home-v3__dot ${i === active ? 'on' : ''}`}
+          role="tab"
+          aria-selected={i === active}
+          aria-label={`Стиль ${i + 1}`}
+          onClick={() => {
+            const el = document.querySelector<HTMLElement>(`.home-v3__carousel--styles`)
+            if (el) el.scrollTo({ left: el.clientWidth * 0.82 * i, behavior: 'smooth' })
+          }}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -245,8 +281,10 @@ function JobDots({ count }: { count: number }) {
   )
 }
 
-// «Ваши работы»: §3.1, §6.4 — подпись «Гостиная · Сканди · 3 сен»
-function WorksStrip({ userId }: { userId: number }) {
+// «Ваши работы»: §3.1, §6.4 — подпись «Гостиная · Сканди · 3 сен».
+// BLOCKER-1: реальный fallback на битый/отсутствующий src.
+// HIGH-5: пустой сегмент стиля → тип задачи. MED-6: ровные ряды (фикс высоты подписи + min-height контейнера).
+function WorksStrip({ userId, onOpen }: { userId: number; onOpen: (id: number) => void }) {
   const [works, setWorks] = useState<Generation[]>([])
   const [loading, setLoading] = useState(true)
   useEffect(() => {
@@ -268,7 +306,7 @@ function WorksStrip({ userId }: { userId: number }) {
         <h2 className="home-v3__h2">Ваши работы</h2>
         <div className="home-v3__works" aria-busy>
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="skel" style={{ width: 140, height: 168 }} />
+            <div key={i} className="skel" style={{ width: 140, height: 200 }} />
           ))}
         </div>
       </section>
@@ -282,20 +320,39 @@ function WorksStrip({ userId }: { userId: number }) {
       <div className="home-v3__works">
         {works.map((w) => {
           const src = w.preview_url || w.result_image_url
+          // HIGH-5/новый: вместо пустого среднего сегмента — тип задачи,
+          // если display_name неизвестен (например, для старых генераций).
+          const jobLabel = w.job_id ? (getJob(w.job_id)?.title || '') : ''
+          const style = w.display_name && w.display_name !== 'Дизайн комнаты' ? w.display_name : ''
+          const room = w.category === 'outdoor' ? 'Участок' : 'Комната'
           return (
             <div key={w.id} className="work-card">
-              <button className="work-card__btn" aria-label="Открыть">
-                {src && (
+              <button
+                className="work-card__btn"
+                aria-label="Открыть"
+                onClick={() => onOpen(w.id)}
+              >
+                {src ? (
                   <img
                     src={`${import.meta.env.VITE_API_URL || ''}${src}`}
                     alt=""
                     loading="lazy"
-                    onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                    onError={(e) => {
+                      // BLOCKER-1: битый src → скелетон-заглушка вместо белого прямоугольника.
+                      // img скрываем, на родителя навешиваем класс с плейсхолдером.
+                      const img = e.target as HTMLImageElement
+                      img.style.display = 'none'
+                      img.parentElement?.classList.add('work-card__btn--broken')
+                    }}
                   />
+                ) : (
+                  // BLOCKER-1: если API не вернул ни preview_url, ни result_image_url —
+                  // сразу показываем скелетон, а не белый прямоугольник.
+                  <div className="work-card__placeholder" aria-hidden />
                 )}
               </button>
-              {/* §6.4: «Гостиная · Сканди · 3 сен» — комната · стиль · дата */}
-              <div className="work-card__cap">{workCaption(w)}</div>
+              {/* HIGH-5: «Комната · Стиль · Дата» / если стиля нет — «Тип задачи · Дата» */}
+              <div className="work-card__cap">{captionFor(w, room, style, jobLabel)}</div>
             </div>
           )
         })}
@@ -306,17 +363,16 @@ function WorksStrip({ userId }: { userId: number }) {
 
 const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
 
-// §6.4: человекочитаемая подпись работы по схеме «Комната · Стиль · Дата».
-// Комната — категория/задача; стиль — имя пресета; дата — день + короткий месяц.
-function workCaption(w: Generation): string {
-  const room = w.category === 'outdoor' ? 'Участок' : 'Комната'
-  const style = w.display_name && w.display_name !== 'Дизайн комнаты' ? w.display_name : ''
+// HIGH-5/§6.4: подпись работы.
+// Полная: «Комната · Стиль · 26 авг».
+// Если display_name неизвестен, средний сегмент заменяется на тип задачи
+// («Убрать лишнее · 26 авг»), чтобы не оставалось пустого «Комната · 26 авг».
+function captionFor(w: Generation, room: string, style: string, jobTitle: string): string {
+  const middle = style || jobTitle
   let date = ''
   try {
     const d = new Date(w.created_at)
-    if (!Number.isNaN(d.getTime())) {
-      date = `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
-    }
+    if (!Number.isNaN(d.getTime())) date = `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
   } catch { /* bad date */ }
-  return [room, style, date].filter(Boolean).join(' · ')
+  return [room, middle, date].filter(Boolean).join(' · ')
 }
