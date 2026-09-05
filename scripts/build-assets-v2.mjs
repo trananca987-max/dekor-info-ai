@@ -103,6 +103,19 @@ async function processVariant(img, crop, longSide, budget) {
 
 // --- main ---
 
+// Проверяем, доступны ли исходники (если запускаемся в Docker, где raw-исходников нет, но public/assets уже скомпилированы)
+const testSrc = await findSrcFile('01');
+if (!testSrc) {
+  try {
+    const existing = await readFile(path.join(OUT_DIR, 'manifest.json'), 'utf8');
+    await writeFile('src/manifest.json', existing, 'utf8');
+    console.log('✓ [assets] Исходные raw-картинки не найдены, используются предкомпилированные public/assets/ (манифест синхронизирован).');
+    process.exit(0);
+  } catch (err) {
+    throw new Error('Слот 01 не найден и отсутствует готовый public/assets/manifest.json: ' + err.message);
+  }
+}
+
 const baseRects = await computeBaseRects();
 console.log('[base] правило: полная высота, ширина 0.8·h, центр по X, сдвиг вверх 0.35');
 for (const s of base_slots) {
