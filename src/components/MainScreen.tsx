@@ -14,7 +14,7 @@ import type { User, Generation } from '../types'
 import { getUser, getUserGenerations, logEvent } from '../api'
 import { JOBS, stylesA, type Style, type Job } from '../config/catalog'
 import { asset, lqip } from '../lib/assets'
-import { useMainButton, useBackButton } from '../hooks/useTelegramChrome'
+import { useBackButton } from '../hooks/useTelegramChrome'
 import PricingSheet from './PricingSheet'
 
 interface Props {
@@ -23,6 +23,8 @@ interface Props {
 }
 
 const POPULAR_STYLE_IDS = ['scandi', 'modern', 'classic', 'loft', 'minimal', 'japandi']
+// Общая «до»-комната: все карточки стилей сгенерированы из неё (промт 01, §3.1)
+const ORIGIN_ROOM = '_base/living_before'
 
 export default function MainScreen({ user, onUserUpdate }: Props) {
   const navigate = useNavigate()
@@ -34,16 +36,6 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
     () => stylesA.filter((s) => POPULAR_STYLE_IDS.includes(s.id)),
     [],
   )
-
-  // §4.1 MainButton: CTA витрины — единый владелец (useTelegramChrome)
-  useMainButton({
-    text: 'Выбрать стиль',
-    onClick: () => {
-      haptic()
-      logEvent(user.telegram_id, 'home_main_cta_tap')
-      navigate('/styles')
-    },
-  })
 
   // §4.3: главная — корневой экран, BackButton скрыт (проверка глубины внутри хука)
   useBackButton({ onBack: () => navigate('/home'), force: false })
@@ -103,7 +95,6 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
           onClick={openPricing}
           aria-label="Статус лимита"
         >
-          <span className="home-v3__limit-lbl">Бесплатно на этой неделе</span>
           <strong>{user.balance_line}</strong>
           <span className="home-v3__limit-chev" aria-hidden>›</span>
         </button>
@@ -112,6 +103,15 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
       {/* «Дизайн комнаты» (§3.1) */}
       <section className="home-v3__section">
         <h2 className="home-v3__h2">Дизайн комнаты</h2>
+
+        {/* HIGH-5: общая «до»-комната один раз над сеткой — все стили сгенерированы
+            из одной базовой комнаты (промт 01); бейдж на карточках убран */}
+        <div className="origin-room">
+          <div className="origin-room__img">
+            <img src={asset(ORIGIN_ROOM, 'thumb')} alt="Исходная комната" loading="lazy" />
+          </div>
+          <span className="origin-room__label">Так выглядит исходная комната</span>
+        </div>
 
         <div className="home-v3__grid">
           {popularStyles.map((s) => (
@@ -156,8 +156,9 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
               }}
             />
           ))}
-          {/* «Подглядывающая» 4-я карточка — последний элемент с правым отступом */}
         </div>
+        {/* MED-8: точки-индикатор — СНАРУЖИ карусели, не обрезаются нижним блоком */}
+        <JobDots count={JOBS.length} />
       </section>
 
       {/* «Ваши работы» — сразу под хедером для вернувшихся (§3.1) */}
@@ -178,7 +179,6 @@ function StyleCard({ style, onClick }: { style: Style; onClick: () => void }) {
         style={{ background: `url(${lqip(style.cover)}) center/cover` }}
       >
         {cover && <img src={cover} alt={style.title} loading="lazy" />}
-        <span className="style-card__badge">до/после</span>
         <div className="style-card__plate">
           <span className="style-card__title">{style.title}</span>
           <span className="style-card__hint">{style.hint}</span>
@@ -191,22 +191,57 @@ function StyleCard({ style, onClick }: { style: Style; onClick: () => void }) {
 // Карточка задачи: сплит-превью «до/после» (§3.1, §6.3 — единый паттерн).
 function JobCard({ job, onClick }: { job: Job; onClick: () => void }) {
   return (
-    <button className="job-card" onClick={onClick} role="listitem">
-      <div
-        className="job-card__split"
-        style={{ background: `url(${lqip(job.before)}) center/cover` }}
-      >
+    <button className="job-card" onClick={onClick} role="listitem"
+      style={{ background: `url(${lqip(job.before)}) center/cover` }}>
+      <div className="job-card__split">
         <img src={asset(job.before, 'thumb')} alt="" loading="lazy" />
         <img src={asset(job.after, 'thumb')} alt="" loading="lazy" />
         <span className="job-card__divider" aria-hidden />
         <span className="job-card__mini">до</span>
         <span className="job-card__mini job-card__mini--r">после</span>
       </div>
-      <div className="job-card__meta">
+      {/* BLOCKER-2: крупный заголовок на карточке со скримом §6.2.2 */}
+      <div className="job-card__plate">
         <span className="job-card__title">{job.title}</span>
         <span className="job-card__hint">{job.hint}</span>
       </div>
     </button>
+  )
+}
+
+// MED-8: точки-индикатор карусели. Рендерятся ВНЕ .home-v3__carousel,
+// поэтому не обрезаются нижним блоком; active — следим за скроллом.
+function JobDots({ count }: { count: number }) {
+  const [active, setActive] = useState(0)
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(`.home-v3__carousel`)
+    if (!el) return
+    const update = () => {
+      const step = el.clientWidth * 0.82 // ширина карточки ≈ 80% + отступ
+      const i = Math.round(el.scrollLeft / step)
+      setActive(Math.max(0, Math.min(count - 1, i)))
+    }
+    el.addEventListener('scroll', update, { passive: true })
+    return () => el.removeEventListener('scroll', update)
+  }, [count])
+  if (count <= 1) return null
+  return (
+    <div className="home-v3__dots" role="tablist" aria-label="Страницы">
+      {Array.from({ length: count }).map((_, i) => (
+        <button
+          key={i}
+          className={`home-v3__dot ${i === active ? 'on' : ''}`}
+          role="tab"
+          aria-selected={i === active}
+          aria-label={`Задача ${i + 1}`}
+          onClick={() => {
+            const el = document.querySelector<HTMLElement>(`.home-v3__carousel`)
+            if (!el) return
+            el.scrollTo({ left: el.clientWidth * 0.82 * i, behavior: 'smooth' })
+          }}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -259,11 +294,29 @@ function WorksStrip({ userId }: { userId: number }) {
                   />
                 )}
               </button>
-              <div className="work-card__cap">{w.display_name || 'Дизайн комнаты'}</div>
+              {/* §6.4: «Гостиная · Сканди · 3 сен» — комната · стиль · дата */}
+              <div className="work-card__cap">{workCaption(w)}</div>
             </div>
           )
         })}
       </div>
     </section>
   )
+}
+
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+
+// §6.4: человекочитаемая подпись работы по схеме «Комната · Стиль · Дата».
+// Комната — категория/задача; стиль — имя пресета; дата — день + короткий месяц.
+function workCaption(w: Generation): string {
+  const room = w.category === 'outdoor' ? 'Участок' : 'Комната'
+  const style = w.display_name && w.display_name !== 'Дизайн комнаты' ? w.display_name : ''
+  let date = ''
+  try {
+    const d = new Date(w.created_at)
+    if (!Number.isNaN(d.getTime())) {
+      date = `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
+    }
+  } catch { /* bad date */ }
+  return [room, style, date].filter(Boolean).join(' · ')
 }

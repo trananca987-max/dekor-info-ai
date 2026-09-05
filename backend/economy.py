@@ -171,8 +171,10 @@ def balance_line(user) -> dict:
 
     if age < DAILY_FREE_DAYS or user.has_ever_paid:
         state = "trial" if age < DAILY_FREE_DAYS else "paid_daily"
+        # максимум текущего периода (для новой ветки новых id — 5, иначе 10)
+        cap = NEW_ID_DAILY_AMOUNT if (is_new_telegram_id(user.telegram_id) and age < 1) else DAILY_FREE_AMOUNT
         if free > 0:
-            line = f"Сегодня бесплатно: {free} дизайнов"
+            line = f"Осталось {free} из {cap} бесплатных дизайнов"
             sheet = f"Осталось {paid} кредитов и {free} дизайнов на сегодня"
         else:
             line = "Бесплатные дизайны на сегодня закончились"
@@ -180,8 +182,7 @@ def balance_line(user) -> dict:
     else:
         state = "weekly"
         if free > 0:
-            line = f"На этой неделе бесплатно: {free} дизайна" if free == 2 \
-                else f"На этой неделе бесплатно: {free} дизайнов"
+            line = f"Осталось {free} из {WEEKLY_FREE_AMOUNT} бесплатных дизайнов"
             sheet = f"Осталось {paid} кредитов и {free} дизайна на этой неделе"
         else:
             line = "Бесплатные дизайны на этой неделе закончились"

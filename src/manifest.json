@@ -77,6 +77,12 @@
     "thumb": "/s/boho/cover.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRqAAAABXRUJQVlA4IJQAAABwBQCdASoYAB4APu1oqU+ppaOiKA1RMB2JQBOmcdgwBop73zDt0vHoN7IY9x3vsYjYGXpkAP6p0iXtSkQymkRY8ee6jvN37GKZUTrg6glzX48UNppqAFTMQVwpCR5iqck3G6R41iaWLs4Xwelq+Nux3NRG4RGjOYr4gyen/Lu8bi6hqzgZOD4xwAipF4T6bBQYAAAA"
   },
+  "_base2/living_before": {
+    "full": "/s/_base2/living_before.full.webp",
+    "preview": "/s/_base2/living_before.preview.webp",
+    "thumb": "/s/_base2/living_before.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRn4AAABXRUJQVlA4IHIAAABQBQCdASoYAB4APu1ip02ppaOiMAgBMB2JYwC7ACFJq6amW6bNOaPe/X3yQLrtThvCFcAA/pAY+a+fIrBkSfBSK1JZtRx4y40SkLQglZqB5hHIGjM46y8RSWfnpwU1s/ExIBTv8AfZGHxHApOpeykAAAA="
+  },
   "classic/bedroom_after": {
     "full": "/s/classic/bedroom_after.full.webp",
     "preview": "/s/classic/bedroom_after.preview.webp",
@@ -88,18 +94,6 @@
     "preview": "/s/classic/living_after.preview.webp",
     "thumb": "/s/classic/living_after.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRqoAAABXRUJQVlA4IJ4AAABwBQCdASoYAB4APu1krU+ppSQiMBgIATAdiUATpmq4Ks4FlIc4K0x9U61FXqDDlCyPl/fgAPzJBl9Bh5fevqlx/5fFqyG+bX7SizfiMlbL3DDDNempYjeQnleDha5j13mEH+l9OaSs9BoZ0V0mjObwK/up708hSerzzWUG7TI70YkUjcLSEOBw/1/SrS3FN/294oNqLabrNH7nksiAAA=="
-  },
-  "chalet/cover": {
-    "full": "/s/chalet/cover.full.webp",
-    "preview": "/s/chalet/cover.preview.webp",
-    "thumb": "/s/chalet/cover.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRoYAAABXRUJQVlA4IHoAAAAwBQCdASoYAB4APu1qrU4ppiSiMAgBMB2JYwCxH2jC+ty7R7eSaCdxR0RXvTFlIqDGYAD+7sMH0i6NFZZEua2fvMRHS8jlNzlYiZ4mVgnIUuEXNh0SCuRvXBvveP7SOv50zeLbmi3jGkYpllpcyAD3UEQK/nNy4cfAAA=="
-  },
-  "_base2/living_before": {
-    "full": "/s/_base2/living_before.full.webp",
-    "preview": "/s/_base2/living_before.preview.webp",
-    "thumb": "/s/_base2/living_before.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRn4AAABXRUJQVlA4IHIAAABQBQCdASoYAB4APu1ip02ppaOiMAgBMB2JYwC7ACFJq6amW6bNOaPe/X3yQLrtThvCFcAA/pAY+a+fIrBkSfBSK1JZtRx4y40SkLQglZqB5hHIGjM46y8RSWfnpwU1s/ExIBTv8AfZGHxHApOpeykAAAA="
   },
   "contemporary/cover": {
     "full": "/s/contemporary/cover.full.webp",
@@ -113,6 +107,18 @@
     "thumb": "/s/contemporary/living_after.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRqAAAABXRUJQVlA4IJQAAABQBQCdASoYAB4APu1qsVAppiUiqAqpMB2JYwC06BBRcoWM0cIMRyIZvKl4d72WXw9XjgAA/kxmkjjQ9sb8Cz7sZ2u8muIOXbWaVdccn6Xgm6tKOyv6iVC8fZeJrmv7OL6oNPuVQl7iB9Kbp2d0WgLd5U1a7WLOKeE0yLPmJuoT3hwBSXjm2Kh/jVDj4KuHDkSQwAAA"
   },
+  "chalet/cover": {
+    "full": "/s/chalet/cover.full.webp",
+    "preview": "/s/chalet/cover.preview.webp",
+    "thumb": "/s/chalet/cover.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRoYAAABXRUJQVlA4IHoAAAAwBQCdASoYAB4APu1qrU4ppiSiMAgBMB2JYwCxH2jC+ty7R7eSaCdxR0RXvTFlIqDGYAD+7sMH0i6NFZZEua2fvMRHS8jlNzlYiZ4mVgnIUuEXNh0SCuRvXBvveP7SOv50zeLbmi3jGkYpllpcyAD3UEQK/nNy4cfAAA=="
+  },
+  "empty_state/placeholder": {
+    "full": "/s/empty_state/placeholder.full.webp",
+    "preview": "/s/empty_state/placeholder.preview.webp",
+    "thumb": "/s/empty_state/placeholder.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAAAwBQCdASoYAB4APuFUpU2opCOiN/qoARAcCUATpl2fSQ5xSqwNyQVXrngkioAv9zCEAAD+4JPAAk/bsU0Yw1lq8acFUwnsBrw59m1VjlKlMULlkstnzYtMV6spFTwa/6vvEr3p1iDJRJNGM+9F6kSiIsstoVHd4KmI4QJNeMQwAAAA"
+  },
   "country/cover": {
     "full": "/s/country/cover.full.webp",
     "preview": "/s/country/cover.preview.webp",
@@ -124,12 +130,6 @@
     "preview": "/s/declutter/after.preview.webp",
     "thumb": "/s/declutter/after.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRpgAAABXRUJQVlA4IIwAAAAwBQCdASoYAB4APu1iqU6ppSOiMBgMATAdiWUAs4ARAoxt/oP7ZXNZW4VZasBAqC00AADK0kq25sK/1mraU/q9XkWS280ilRCyHgO360gkpCMJHPE+UE6hlS+EaTCKtKPnJbSYNvad53gdeBUtHhkKPAoafJnP+uvbkoRViolsjriL6K+sqv/5JVgAAA=="
-  },
-  "empty_state/placeholder": {
-    "full": "/s/empty_state/placeholder.full.webp",
-    "preview": "/s/empty_state/placeholder.preview.webp",
-    "thumb": "/s/empty_state/placeholder.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAAAwBQCdASoYAB4APuFUpU2opCOiN/qoARAcCUATpl2fSQ5xSqwNyQVXrngkioAv9zCEAAD+4JPAAk/bsU0Yw1lq8acFUwnsBrw59m1VjlKlMULlkstnzYtMV6spFTwa/6vvEr3p1iDJRJNGM+9F6kSiIsstoVHd4KmI4QJNeMQwAAAA"
   },
   "facade/after": {
     "full": "/s/facade/after.full.webp",
@@ -221,6 +221,12 @@
     "thumb": "/s/industrial/cover.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRogAAABXRUJQVlA4IHwAAADQBACdASoYAB4APu1mqE4ppaOiMAgBMB2JZwAAUpRVElf4PbLXIC4BQ8WgRrAhjAD+S6LfPJm5RM7YIFtP8sC+j3zm0x0Wqii1vGT4iQNVuBPfF6ukPfxegbp1rRReNvDa/bJHfmxx4VvdqDzxYXrGVzDbXMEiJbcKYAAA"
   },
+  "maximal/cover": {
+    "full": "/s/maximal/cover.full.webp",
+    "preview": "/s/maximal/cover.preview.webp",
+    "thumb": "/s/maximal/cover.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRqIAAABXRUJQVlA4IJYAAAAwBQCdASoYAB4APu1oq04ppiQiMAgBMB2JQBOmWOhWSzrt6nMYdMiS7S7NlkAIXon3gAD+wXyALMZIGBtsB7v0LapWQdJMj+8z6jWOTASfqinfnN2/KsZXXAmGmReHpBz1xpkna+HAw1ZTIFFfDlhRhzX8dKmoOlr1IXy68qVfnE22jSt8qjelGTDrMY17jEDgIPqfAAA="
+  },
   "japandi/cover": {
     "full": "/s/japandi/cover.full.webp",
     "preview": "/s/japandi/cover.preview.webp",
@@ -244,30 +250,6 @@
     "preview": "/s/loft/living_after.preview.webp",
     "thumb": "/s/loft/living_after.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRpIAAABXRUJQVlA4IIYAAACwBQCdASoYAB4APu1sr1CppiSiqAqpMB2JZQC06A9rp3sBuU7abUhWFqQAyN89/XkUo69OQAAA/unW+HtOh5E9tl4mpreI/vHHAMwaGqmTn+5H9fe6an2tXgbF38eGQaxFyR6bjgwllxBJwAuddNZXXagfyP6X5PalAxORyE4+z05hNF+AAA=="
-  },
-  "maximal/cover": {
-    "full": "/s/maximal/cover.full.webp",
-    "preview": "/s/maximal/cover.preview.webp",
-    "thumb": "/s/maximal/cover.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRqIAAABXRUJQVlA4IJYAAAAwBQCdASoYAB4APu1oq04ppiQiMAgBMB2JQBOmWOhWSzrt6nMYdMiS7S7NlkAIXon3gAD+wXyALMZIGBtsB7v0LapWQdJMj+8z6jWOTASfqinfnN2/KsZXXAmGmReHpBz1xpkna+HAw1ZTIFFfDlhRhzX8dKmoOlr1IXy68qVfnE22jSt8qjelGTDrMY17jEDgIPqfAAA="
-  },
-  "mediterranean/cover": {
-    "full": "/s/mediterranean/cover.full.webp",
-    "preview": "/s/mediterranean/cover.preview.webp",
-    "thumb": "/s/mediterranean/cover.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRpwAAABXRUJQVlA4IJAAAADQBQCdASoYAB4APu1mrU8ppaQiKA1RMB2JYgCdMoR86BLLN4d//aTgdtwSS/GGOwE8h2aKlPhAAPRGKWGR2YqAn8xARsRTmEUyzMiSuYKeCn89PnAIdr/neaR4McG9YlKLGfgCjsKl3NGG7O0Z4j6Z+43rFyrBs2VcPb79+JkZPw9SrsF1rLLsABw/lE5UAAA="
-  },
-  "modern/bedroom_after": {
-    "full": "/s/modern/bedroom_after.full.webp",
-    "preview": "/s/modern/bedroom_after.preview.webp",
-    "thumb": "/s/modern/bedroom_after.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRpIAAABXRUJQVlA4IIYAAAAQBQCdASoYAB4APuFcqE2opSQiMAwBEBwJYwCdM2QC+RLMGbrjH3RqHgcSZ2hqd8wAAN1xZ8Xp5XmdphUKhPj6xbNQh61cP0s4SE3+6lf4N3y8nRUtE/5QsNQmwXFgcyt+HTYHV0f7DxSFJj/nFOAe17Ix0RgD272ercn//y+DitS/QkUAAA=="
-  },
-  "modern/living_after": {
-    "full": "/s/modern/living_after.full.webp",
-    "preview": "/s/modern/living_after.preview.webp",
-    "thumb": "/s/modern/living_after.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRpgAAABXRUJQVlA4IIwAAACQBQCdASoYAB4APu1iqE2ppaOiMAgBMB2JZQCdMxgCql3dJ9iIV9D2j5ykR/xvuImpjRm+OADNPsLkjikVTAneeGtW1WiSNJHob5cDMihSRVFv0fdmA3CmEtSg5F+UykB3bRAg/JYUl9+puMVg1obiOLwKt+eoSo5RjLnF6PU6iAYzXQGs+CbqKQAAAA=="
   },
   "minimal/bedroom_after": {
     "full": "/s/minimal/bedroom_after.full.webp",
@@ -299,11 +281,23 @@
     "thumb": "/s/provence/living_after.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRpAAAABXRUJQVlA4IIQAAAAQBQCdASoYAB4APu1oq06ppiOiMBgIATAdiWUAuwAPH5t1ROaQYXVDQSmmsp8nk/AAAOENwaMV/GC8qfXgguCyhDftkGjldb5L4gIo8S+Kn4Pt5YE3upbv6SwvVLE8Gy17hCH4+VodnHR5CJj9ScQatwZJ4LQjGsgn+cwTk/sScbLVAAA="
   },
-  "repaint/after": {
-    "full": "/s/repaint/after.full.webp",
-    "preview": "/s/repaint/after.preview.webp",
-    "thumb": "/s/repaint/after.thumb.webp",
-    "lqip": "data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAABQBQCdASoYAB4APu1mq08ppaOiKA1RMB2JQBdmarjZfOtRz1MyvHlGFSlKL7UMcYzSGAAA/rFmQY/7uOMGcRYXngZoL4mOGRUnZNYgR0afAogcM9KJyiPIyjq1OnTynUJTd0k1a4qYYDNPgQqxSWgtxFUsavg48+TAQT0nqVcToAAA"
+  "modern/bedroom_after": {
+    "full": "/s/modern/bedroom_after.full.webp",
+    "preview": "/s/modern/bedroom_after.preview.webp",
+    "thumb": "/s/modern/bedroom_after.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRpIAAABXRUJQVlA4IIYAAAAQBQCdASoYAB4APuFcqE2opSQiMAwBEBwJYwCdM2QC+RLMGbrjH3RqHgcSZ2hqd8wAAN1xZ8Xp5XmdphUKhPj6xbNQh61cP0s4SE3+6lf4N3y8nRUtE/5QsNQmwXFgcyt+HTYHV0f7DxSFJj/nFOAe17Ix0RgD272ercn//y+DitS/QkUAAA=="
+  },
+  "modern/living_after": {
+    "full": "/s/modern/living_after.full.webp",
+    "preview": "/s/modern/living_after.preview.webp",
+    "thumb": "/s/modern/living_after.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRpgAAABXRUJQVlA4IIwAAACQBQCdASoYAB4APu1iqE2ppaOiMAgBMB2JZQCdMxgCql3dJ9iIV9D2j5ykR/xvuImpjRm+OADNPsLkjikVTAneeGtW1WiSNJHob5cDMihSRVFv0fdmA3CmEtSg5F+UykB3bRAg/JYUl9+puMVg1obiOLwKt+eoSo5RjLnF6PU6iAYzXQGs+CbqKQAAAA=="
+  },
+  "mediterranean/cover": {
+    "full": "/s/mediterranean/cover.full.webp",
+    "preview": "/s/mediterranean/cover.preview.webp",
+    "thumb": "/s/mediterranean/cover.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRpwAAABXRUJQVlA4IJAAAADQBQCdASoYAB4APu1mrU8ppaQiKA1RMB2JYgCdMoR86BLLN4d//aTgdtwSS/GGOwE8h2aKlPhAAPRGKWGR2YqAn8xARsRTmEUyzMiSuYKeCn89PnAIdr/neaR4McG9YlKLGfgCjsKl3NGG7O0Z4j6Z+43rFyrBs2VcPb79+JkZPw9SrsF1rLLsABw/lE5UAAA="
   },
   "quietluxury/cover": {
     "full": "/s/quietluxury/cover.full.webp",
@@ -328,6 +322,12 @@
     "preview": "/s/share_template/bg.preview.webp",
     "thumb": "/s/share_template/bg.thumb.webp",
     "lqip": "data:image/webp;base64,UklGRlQAAABXRUJQVlA4IEgAAAAQBACdASoYAB4APu1urVCppqQjqAqpMB2JZQCw7BEdw83UHI1EV2uP8AD+3riC+O4WiaB6/Mj6YqqPxvzth47kch2x/M39cAA="
+  },
+  "repaint/after": {
+    "full": "/s/repaint/after.full.webp",
+    "preview": "/s/repaint/after.preview.webp",
+    "thumb": "/s/repaint/after.thumb.webp",
+    "lqip": "data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAABQBQCdASoYAB4APu1mq08ppaOiKA1RMB2JQBdmarjZfOtRz1MyvHlGFSlKL7UMcYzSGAAA/rFmQY/7uOMGcRYXngZoL4mOGRUnZNYgR0afAogcM9KJyiPIyjq1OnTynUJTd0k1a4qYYDNPgQqxSWgtxFUsavg48+TAQT0nqVcToAAA"
   },
   "scandi/bedroom_after": {
     "full": "/s/scandi/bedroom_after.full.webp",
