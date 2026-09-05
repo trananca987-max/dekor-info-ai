@@ -7,7 +7,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: genan616/dekor-info-ai
+  # Namespace = владелец репо (не коллаборатор): у trananca987-max всегда есть
+  # packages:write, у коллаборатора genan616 — нет (denied: permission_denied).
+  IMAGE_NAME: trananca987-max/dekor-info-ai
 
 jobs:
   build:
