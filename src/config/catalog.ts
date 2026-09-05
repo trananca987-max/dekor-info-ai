@@ -1,197 +1,322 @@
-// PATCH v2.2 §2: каталог — конфиг вместо хардкода.
-// Добавление стиля = правка этого файла, не кода.
-// Пути — без расширений и размеров; компонент сам достаёт из манифеста
-// full (слайдер), preview (карточка витрины), thumb (переключатель комнат), lqip (заглушка).
+// Каталог стилей и задач DekorInfo AI (SPEC v3 - Этап B).
+// Единственный источник правды согласован с assets.json / public/assets/manifest.json.
 
-export type Room = { room: string; label: string; before: string; after: string };
+export type OverlayType = 'plain' | 'gradient' | 'frame';
+export type CompareType = 'static_seam' | 'toggle' | 'slider';
 
-export type Style = {
+export interface Style {
   id: string;
   title: string;
-  hint: string;
-  tier: 'A' | 'B';
-  cover: string;
-  rooms: Room[];
+  hint?: string;
+  tier: 1 | 2;
+  order: number;
+  after: string; // Имя ассета без расширения (напр. '02_scandi_after')
+  overlay: OverlayType;
   promptRef: string;
-};
+}
 
-export type JobDirection = {
-  id: string;
-  label: string;
-  before: string;
-  after: string;
-  promptRef: string;
-};
-
-export type Job = {
+export interface Job {
   id: string;
   title: string;
-  hint: string;
-  before: string;
-  after: string;
+  subtitle: string;
+  hint?: string;
+  before: string; // Имя ассета без расширения (напр. '22_declutter_before')
+  after: string;  // Имя ассета без расширения (напр. '23_declutter_after')
+  compare: CompareType;
+  seam: number | null;
   promptRef: string;
-  directions?: JobDirection[];
-};
+  directions?: { id: string; label: string; before: string; after: string; promptRef: string }[];
+}
 
-// === УРОВЕНЬ A: 8 стилей с готовыми парами «до/после» (гостиная + спальня) ===
-// === УРОВЕНЬ B: 14 стилей с обложками ===
-export const STYLES: Style[] = [
+// Глобальная базовая комната «до» для всех стилей Уровня 1 (Слот 01)
+export const BASE_BEFORE = '01_base_before';
+
+// === УРОВЕНЬ 1: Стили главного экрана (карусель / сплит до/после) ===
+export const STYLES_TIER1: Style[] = [
   {
-    id: 'scandi', title: 'Скандинавский', hint: 'Светлое дерево, белые стены, много света',
-    tier: 'A', cover: 'scandi/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'scandi/living_after' },
-      { room: 'bedroom', label: 'Спальня', before: '_base/bedroom_before', after: 'scandi/bedroom_after' },
-    ],
+    id: 'scandi',
+    title: 'Скандинавский',
+    hint: 'Светлое дерево, белые стены, много света',
+    tier: 1,
+    order: 1,
+    after: '02_scandi_after',
+    overlay: 'plain',
     promptRef: 'scandinavian interior, white matte walls, light oak flooring, pale grey linen sofa, jute rug, soft daylight',
   },
   {
-    id: 'modern', title: 'Современный', hint: 'Чистые линии, спокойные тона, ничего лишнего',
-    tier: 'A', cover: 'modern/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'modern/living_after' },
-      { room: 'bedroom', label: 'Спальня', before: '_base/bedroom_before', after: 'modern/bedroom_after' },
-    ],
+    id: 'modern',
+    title: 'Современный',
+    hint: 'Чистые линии, спокойные тона, ничего лишнего',
+    tier: 1,
+    order: 2,
+    after: '03_modern_after',
+    overlay: 'plain',
     promptRef: 'contemporary interior, clean lines, neutral tones, wood and matte surfaces, large windows',
   },
   {
-    id: 'classic', title: 'Классический', hint: 'Элегантная мебель, лепнина, тёплый свет',
-    tier: 'A', cover: 'classic/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'classic/living_after' },
-      { room: 'bedroom', label: 'Спальня', before: '_base/bedroom_before', after: 'classic/bedroom_after' },
-    ],
-    promptRef: 'classic elegant interior, mouldings, parquet floor, refined furniture, warm light, restrained luxury',
+    id: 'quietlux',
+    title: 'Тихая роскошь',
+    hint: 'Сдержанный шик, премиальные ткани и текстуры',
+    tier: 1,
+    order: 3,
+    after: '04_quietlux_after',
+    overlay: 'gradient',
+    promptRef: 'quiet luxury interior, cream and taupe tones, herringbone parquet, cashmere throw, brass details, warm lighting',
   },
   {
-    id: 'provence', title: 'Прованс', hint: 'Пастельные тона, винтажная мебель, цветы',
-    tier: 'A', cover: 'provence/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'provence/living_after' },
-      { room: 'bedroom', label: 'Спальня', before: '_base/bedroom_before', after: 'provence/bedroom_after' },
-    ],
-    promptRef: 'french provence interior, pastel tones, vintage wooden furniture, floral textiles, warm sunlight',
-  },
-  {
-    id: 'loft', title: 'Лофт', hint: 'Кирпич, бетон, металл и кожа',
-    tier: 'A', cover: 'loft/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'loft/living_after' },
-      { room: 'bedroom', label: 'Спальня', before: '_base/bedroom_before', after: 'loft/bedroom_after' },
-    ],
+    id: 'loft',
+    title: 'Лофт',
+    hint: 'Кирпич, бетон, металл и кожа',
+    tier: 1,
+    order: 4,
+    after: '05_loft_after',
+    overlay: 'plain',
     promptRef: 'loft interior, exposed brick walls, concrete ceiling, metal and leather furniture, warm edison bulbs',
   },
-  {
-    id: 'minimal', title: 'Минимализм', hint: 'Пустые поверхности, скрытое хранение',
-    tier: 'A', cover: 'minimal/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'minimal/living_after' },
-      { room: 'bedroom', label: 'Спальня', before: '_base/bedroom_before', after: 'minimal/bedroom_after' },
-    ],
-    promptRef: 'minimalist interior, empty clean surfaces, hidden storage, white and grey tones, soft light',
-  },
-  {
-    id: 'wood', title: 'Тёплое дерево', hint: 'Тёплый дуб, природные фактуры',
-    tier: 'A', cover: 'wood/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'wood/living_after' },
-    ],
-    promptRef: 'warm wood interior, oak wall panels, wooden furniture, soft warm lighting, natural textures',
-  },
-  {
-    id: 'neoclassic', title: 'Неоклассика', hint: 'Классика без излишеств, светлые тона',
-    tier: 'A', cover: 'neoclassic/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base/living_before', after: 'neoclassic/living_after' },
-    ],
-    promptRef: 'neoclassical interior, classic proportions without excess, light tones, elegant mouldings, modern furniture',
-  },
-  // --- Уровень B: обложки, без слайдера и переключателя комнат (§7.2) ---
-  { id: 'artdeco', title: 'Ар-деко', hint: 'Латунь, глубокие цвета, геометрия', tier: 'B', cover: 'artdeco/cover', rooms: [], promptRef: 'art deco interior, brass details, deep emerald and gold, geometric patterns, velvet furniture' },
-  { id: 'mediterranean', title: 'Средиземноморский', hint: 'Белая штукатурка, терракота, арки', tier: 'B', cover: 'mediterranean/cover', rooms: [], promptRef: 'mediterranean interior, white stucco walls, terracotta floor, arches, airy sea-light atmosphere' },
-  { id: 'boho', title: 'Бохо', hint: 'Текстиль, ротанг, растения, тёплые тона', tier: 'B', cover: 'boho/cover', rooms: [], promptRef: 'boho interior, layered textiles, rattan furniture, many plants, warm earthy tones, eclectic decor' },
-  { id: 'country', title: 'Кантри', hint: 'Деревянные стены, уютный деревенский стиль', tier: 'B', cover: 'country/cover', rooms: [], promptRef: 'country house interior, wooden walls, cozy plaid textiles, rustic furniture, warm light' },
-  { id: 'chalet', title: 'Шале', hint: 'Брус, каменный камин, тепло', tier: 'B', cover: 'chalet/cover', rooms: [], promptRef: 'alpine chalet interior, rough timber walls, stone fireplace, warm wool textiles, soft light' },
-  {
-    id: 'japandi', title: 'Джапанди', hint: 'Японский минимализм и скандинавское тепло',
-    tier: 'A', cover: 'japandi/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base2/living_before', after: 'japandi/living_after' },
-    ],
-    promptRef: 'japandi interior, japanese minimalism with scandinavian warmth, low furniture, natural materials, harmony',
-  },
-  {
-    id: 'quietluxury', title: 'Тихая роскошь', hint: 'Сдержанность и дорогие материалы',
-    tier: 'A', cover: 'quietluxury/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base2/living_before', after: 'quietluxury/living_after' },
-    ],
-    promptRef: 'quiet luxury interior, understated expensive materials, cashmere textures, marble, muted refined tones',
-  },
-  { id: 'biophilic', title: 'Эко и биофильный', hint: 'Живые растения, натуральные материалы', tier: 'B', cover: 'biophilic/cover', rooms: [], promptRef: 'biophilic interior, many live plants, natural wood, green accents, abundant daylight' },
-  { id: 'hitech', title: 'Хай-тек', hint: 'Умный свет, стекло и хром', tier: 'B', cover: 'hitech/cover', rooms: [], promptRef: 'high-tech interior, smart lighting, glass and chrome surfaces, minimal decor, cool tones' },
-  {
-    id: 'contemporary', title: 'Контемпорари', hint: 'Современная мебель, акцентный арт',
-    tier: 'A', cover: 'contemporary/living_after',
-    rooms: [
-      { room: 'living', label: 'Гостиная', before: '_base2/living_before', after: 'contemporary/living_after' },
-    ],
-    promptRef: 'contemporary interior, modern furniture, neutral palette, accent artwork, soft lighting',
-  },
-  { id: 'retro', title: 'Ретро-винтаж', hint: '60–70-е, тёплая ностальгия', tier: 'B', cover: 'retro/cover', rooms: [], promptRef: 'retro vintage interior, 1960s-70s furniture, warm colors, patterned textiles, nostalgic mood' },
-  { id: 'glam', title: 'Гламур', hint: 'Глянец, хрусталь, бархат', tier: 'B', cover: 'glam/cover', rooms: [], promptRef: 'glamorous interior, glossy surfaces, crystal chandelier, velvet furniture, rich jewel colors' },
-  { id: 'industrial', title: 'Индустриальный', hint: 'Бетон, металл, брутальные фактуры', tier: 'B', cover: 'industrial/cover', rooms: [], promptRef: 'industrial interior, concrete walls, metal elements, open pipes, raw textures, loft mood' },
-  { id: 'maximal', title: 'Максимализм', hint: 'Смелые цвета, много декора', tier: 'B', cover: 'maximal/cover', rooms: [], promptRef: 'maximalist interior, bold rich colors, layered patterns, gallery wall of art, expressive decor' },
 ];
 
-// === Задачи (§2): отдельный массив той же формы ===
+// === УРОВЕНЬ 2: Все стили каталога (/styles, сетка 2 колонки, порядок строго по выдаче) ===
+export const STYLES_TIER2: Style[] = [
+  {
+    id: 'maximalism',
+    title: 'Максимализм',
+    hint: 'Яркие цвета, насыщенные фактуры, смелый декор',
+    tier: 2,
+    order: 1,
+    after: '06_maximalism_after',
+    overlay: 'plain',
+    promptRef: 'maximalist interior, emerald green walls, velvet sofa, rich art gallery wall, ornate rug, eclectic bold style',
+  },
+  {
+    id: 'japandi',
+    title: 'Джапанди',
+    hint: 'Скандинавский уют и японская простота',
+    tier: 2,
+    order: 2,
+    after: '07_japandi_after',
+    overlay: 'plain',
+    promptRef: 'japandi interior, walnut wood, raw linen, handmade ceramic, paper pendant lamp, tranquil warm minimalism',
+  },
+  {
+    id: 'boho',
+    title: 'Бохо',
+    hint: 'Плетение, макраме, ротанг и растения',
+    tier: 2,
+    order: 3,
+    after: '12_boho_after',
+    overlay: 'plain',
+    promptRef: 'boho chic living room, macrame wall hanging, rattan armchair, textured cushions, indoor plants, warm cozy light',
+  },
+  {
+    id: 'artdeco',
+    title: 'Ар-деко',
+    hint: 'Геометрия, латунь, мрамор и глянец',
+    tier: 2,
+    order: 4,
+    after: '13_artdeco_after',
+    overlay: 'plain',
+    promptRef: 'art deco living room, navy blue velvet, gold brass accents, geometric marble coffee table, crystal chandelier, luxury',
+  },
+  {
+    id: 'midcentury',
+    title: 'Мид-сенчури',
+    hint: 'Стиль 60-х: тиковое дерево, культовая мебель',
+    tier: 2,
+    order: 5,
+    after: '14_midcentury_after',
+    overlay: 'plain',
+    promptRef: 'mid-century modern interior, teak sideboard, iconic egg armchair, mustard and olive accents, walnut floor',
+  },
+  {
+    id: 'neoclassic',
+    title: 'Неоклассика',
+    hint: 'Классика без излишеств, светлые тона и молдинги',
+    tier: 2,
+    order: 6,
+    after: '09_neoclassic_after',
+    overlay: 'plain',
+    promptRef: 'neoclassic elegant interior, dove grey wall mouldings, light chevron parquet, modern crystal chandelier, refined sofa',
+  },
+  {
+    id: 'provence',
+    title: 'Прованс',
+    hint: 'Пастельные тона, лаванда, винтаж и терракота',
+    tier: 2,
+    order: 7,
+    after: '11_provence_after',
+    overlay: 'gradient',
+    promptRef: 'french provence interior, lavender and cream palette, vintage distressed wood, terracotta tiles, floral textiles, warm sunlight',
+  },
+  {
+    id: 'english',
+    title: 'Английский',
+    hint: 'Глубокий зелёный, книжные шкафы, кожа',
+    tier: 2,
+    order: 8,
+    after: '19_english_after',
+    overlay: 'plain',
+    promptRef: 'traditional english study living room, deep green wall panelling, built-in mahogany bookcases, chesterfield leather sofa, plaid throw',
+  },
+  {
+    id: 'ecoorganic',
+    title: 'Эко-органика',
+    hint: 'Живой край дерева, живые растения, глина',
+    tier: 2,
+    order: 9,
+    after: '20_ecoorganic_after',
+    overlay: 'plain',
+    promptRef: 'organic modern interior, live edge solid wood table, clay plaster walls, lush indoor plants, travertine stone, raw textures',
+  },
+  {
+    id: 'mediterranean',
+    title: 'Средиземноморский',
+    hint: 'Арочные ниши, оливковые тона, побелка',
+    tier: 2,
+    order: 10,
+    after: '17_mediterranean_after',
+    overlay: 'frame',
+    promptRef: 'mediterranean villa living room, whitewashed curved walls, arched niches, terracotta pottery, olive tree in ceramic pot, natural linen',
+  },
+  {
+    id: 'glamour',
+    title: 'Гламур',
+    hint: 'Пыльная роза, хрусталь, бархат и золото',
+    tier: 2,
+    order: 11,
+    after: '21_glamour_after',
+    overlay: 'gradient',
+    promptRef: 'modern glam interior, dusty rose velvet, crystal accents, polished brass, blush marble coffee table, elegant plush rug',
+  },
+  {
+    id: 'classic',
+    title: 'Классика',
+    hint: 'Орех, бордовые акценты, парадный стиль',
+    tier: 2,
+    order: 12,
+    after: '10_classic_after',
+    overlay: 'plain',
+    promptRef: 'classic luxury interior, rich walnut panelling, deep burgundy velvet curtains, carved furniture, gilded frame mirror, warm chandelier',
+  },
+  {
+    id: 'hitech',
+    title: 'Хай-тек · вечер',
+    hint: 'Графит, неоновая и светодиодная подсветка',
+    tier: 2,
+    order: 13,
+    after: '16_hitech_after',
+    overlay: 'plain',
+    promptRef: 'high-tech evening interior, graphite matte surfaces, concealed LED cove lighting, smart glass, polished dark concrete, futuristic sleek lines',
+  },
+  {
+    id: 'chalet',
+    title: 'Шале',
+    hint: 'Дикий камень, камин, балки и тёплый плед',
+    tier: 2,
+    order: 14,
+    after: '18_chalet_after',
+    overlay: 'plain',
+    promptRef: 'alpine chalet living room, rough stone fireplace with glowing fire, heavy wooden ceiling beams, chunky knit wool throw, rustic warmth',
+  },
+  {
+    id: 'minimalism',
+    title: 'Минимализм',
+    hint: 'Чистые белые стены, скрытое хранение',
+    tier: 2,
+    order: 15,
+    after: '08_minimalism_after',
+    overlay: 'frame',
+    promptRef: 'extreme minimalism, seamless white walls, concealed frameless doors, singular floating bench, pure architectural light',
+  },
+  {
+    id: 'wabisabi',
+    title: 'Ваби-саби',
+    hint: 'Неровная штукатурка, глина, красота несовершенства',
+    tier: 2,
+    order: 16,
+    after: '15_wabisabi_after',
+    overlay: 'frame',
+    promptRef: 'wabi-sabi room, textured uneven clay plaster walls, aged weathered wood, handcrafted rough ceramic bowl, diffused natural light',
+  },
+];
+
+// Объединённый список всех стилей для роутов и совместимости
+export const STYLES: Style[] = [...STYLES_TIER1, ...STYLES_TIER2];
+
+// === ПАРЫ «ДРУГИЕ РАБОТЫ» (Карусель задач) ===
 export const JOBS: Job[] = [
   {
-    id: 'declutter', title: 'Убрать лишнее', hint: 'Уберём хлам — мебель останется',
-    before: '_base/declutter_before', after: 'declutter/after',
-    promptRef: 'Declutter this room completely: remove all clutter, mess, random objects, clothes, boxes and trash. Keep the furniture and room structure, make it clean, tidy and organized. Photorealistic.',
-  },
-  {
-    id: 'garden', title: 'Сад и участок', hint: 'Газон, дорожки, клумбы, зона отдыха',
-    before: '_base/garden_cozy_before', after: 'garden_cozy/after',
-    promptRef: 'beautiful landscaped garden, neat lawn, curved paths, flower beds, cozy seating area, garden lighting',
+    id: 'declutter',
+    title: 'Убрать лишнее',
+    subtitle: 'Уберём хлам — мебель останется',
+    hint: 'Виртуальная уборка и расхламление комнаты',
+    before: '22_declutter_before',
+    after: '23_declutter_after',
+    compare: 'static_seam',
+    seam: 0.45,
+    promptRef: 'Clean up this room: remove all clutter, boxes, clothes and scattered items from floor and furniture. Keep all original furniture, layout and structure exactly as is. Clean tidy room. Photorealistic.',
     directions: [
-      { id: 'garden_cozy', label: 'Уютная дача', before: '_base/garden_cozy_before', after: 'garden_cozy/after', promptRef: 'cozy country garden: neat lawn, flower beds, garden path, outdoor seating area, warm evening lights' },
-      { id: 'garden_english', label: 'Английский сад', before: '_base/garden_english_before', after: 'garden_english/after', promptRef: 'english garden: lush borders, roses, trimmed hedges, gravel paths, classic garden elegance' },
-      { id: 'garden_terrace', label: 'Средиземноморская терраса', before: '_base/garden_terrace_before', after: 'garden_terrace/after', promptRef: 'mediterranean terrace: wooden deck, potted plants, outdoor lounge furniture, pergola with vines, string lights' },
-      { id: 'garden_yard', label: 'Минималистичный двор', before: '_base/garden_yard_before', after: 'garden_yard/after', promptRef: 'minimalist yard: clean lawn, geometric paths, ornamental grasses, restrained modern landscaping' },
-      { id: 'garden_landscape', label: 'Ландшафтный сад', before: 'garden_landscape/before', after: 'garden_landscape/after', promptRef: 'landscaped garden: manicured lawn, natural stone walkway, hydrangea borders, ornamental grasses, young trees, golden hour light' },
-      { id: 'garden_lounge', label: 'Вечерняя зона отдыха', before: 'garden_landscape/before', after: 'garden_lounge/after', promptRef: 'evening garden lounge: wooden deck, modular sofa with cushions, fire pit, edison string lights, landscape lighting, blue hour atmosphere' },
+      {
+        id: 'declutter_general',
+        label: 'Генеральная уборка',
+        before: '22_declutter_before',
+        after: '23_declutter_after',
+        promptRef: 'Tidy up the room, remove trash and scattered items, organize surfaces.',
+      },
     ],
   },
   {
-    id: 'repaint', title: 'Перекрасить стены', hint: 'Свежая ровная краска вместо старых обоев',
-    before: '_base/repaint_before', after: 'repaint/after',
-    promptRef: 'Repaint the walls of this room: remove old wallpaper and peeling paint, apply fresh even paint in a modern neutral color. Keep furniture, floor and layout unchanged. Photorealistic.',
-  },
-  {
-    id: 'furniture', title: 'Заменить мебель', hint: 'Современный гарнитур вместо старого',
-    before: '_base/furniture_before', after: 'furniture/after',
-    promptRef: 'Replace the old furniture in this room with a modern matching furniture set. Keep the room structure, floor and windows unchanged. Photorealistic.',
-  },
-  {
-    id: 'facade', title: 'Фасад дома', hint: 'Аккуратный фасад без перестройки',
-    before: '_base/facade_before', after: 'facade/after',
+    id: 'facade',
+    title: 'Фасад дома',
+    subtitle: 'Отделка и окна за минуту',
+    hint: 'Обновление фасада дома и входной группы',
+    before: '24_facade_before',
+    after: '25_facade_after',
+    compare: 'static_seam',
+    seam: 0.53,
     promptRef: 'Renovate the facade of this house: fresh modern exterior finish, clean walls, updated windows and entrance, tidy surroundings. Keep the house shape and structure unchanged. Photorealistic.',
+    directions: [
+      {
+        id: 'facade_modern',
+        label: 'Современный фасад',
+        before: '24_facade_before',
+        after: '25_facade_after',
+        promptRef: 'Modern exterior wall finish, clean contemporary windows.',
+      },
+    ],
   },
   {
-    id: 'facade_lighting', title: 'Вечерний фасад', hint: 'Подсветка дома и участка к вечеру',
-    before: 'facade_renov/before', after: 'facade_lighting/after',
-    promptRef: 'Evening house exterior: architectural facade lighting, warm window glow, landscape path lights, blue hour sky. Keep the house shape and structure unchanged. Photorealistic.',
+    id: 'garden',
+    title: 'Сад и участок',
+    subtitle: 'Газон, дорожки, посадки',
+    hint: 'Ландшафтный дизайн и благоустройство двора',
+    before: '26_garden_before',
+    after: '27_garden_after',
+    compare: 'toggle',
+    seam: null,
+    promptRef: 'Landscape design for this backyard garden: lush green neat lawn, natural stone paved walking path, beautiful flowering bushes and garden beds, clean cozy outdoor area. Photorealistic.',
+    directions: [
+      {
+        id: 'garden_landscape',
+        label: 'Ландшафтный сад',
+        before: '26_garden_before',
+        after: '27_garden_after',
+        promptRef: 'Lawn, stone pathways, flower beds and decorative shrubs.',
+      },
+    ],
   },
 ];
 
-// Служебные ассеты (§1.3, §7.4)
-export const SHARE_BG = { bg: 'share_template/bg' };
-export const EMPTY_STATE = { placeholder: 'empty_state/placeholder' };
+// Служебные ассеты
+export const UTILS = {
+  shooting_guide: '28_shooting_guide',
+  empty_state: '29_empty_state',
+  limit: '30_limit',
+  social_preview: '31_social_preview',
+  progress_bg: '32_progress_bg',
+};
 
 // === Хелперы ===
-export const stylesA = STYLES.filter(s => s.tier === 'A');
-export const stylesB = STYLES.filter(s => s.tier === 'B');
+export const stylesA = STYLES_TIER1;
+export const stylesB = STYLES_TIER2;
 export const getStyle = (id: string) => STYLES.find(s => s.id === id);
 export const getJob = (id: string) => JOBS.find(j => j.id === id);

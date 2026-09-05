@@ -5,8 +5,8 @@
 import { useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { User } from '../types'
-import { getJob, type JobDirection } from '../config/catalog'
-import { asset, lqip } from '../lib/assets'
+import { getJob } from '../config/catalog'
+import { asset } from '../lib/assets'
 import { logEvent } from '../api'
 import { useMainButton, useBackButton } from '../hooks/useTelegramChrome'
 
@@ -127,22 +127,28 @@ export default function TaskScreen({ user }: { user: User }) {
   )
 }
 
+interface DirectionItem {
+  id: string
+  label: string
+  before: string
+  after: string
+  promptRef: string
+}
+
 // Карточка примера: крупная пара до/после с разделителем
-function TaskExampleCard({ direction, index }: { direction: JobDirection; index: number }) {
+function TaskExampleCard({ direction, index }: { direction: DirectionItem; index: number }) {
   return (
     <div className="task-v3__example" style={{ animationDelay: `${index * 80}ms` }}>
       <div className="task-v3__example-split">
         <img
-          src={asset(direction.before, 'preview')}
+          src={asset(direction.before, 'card')}
           alt="До"
           loading="lazy"
-          style={{ background: `url(${lqip(direction.before)}) center/cover` }}
         />
         <img
-          src={asset(direction.after, 'preview')}
+          src={asset(direction.after, 'card')}
           alt="После"
           loading="lazy"
-          style={{ background: `url(${lqip(direction.after)}) center/cover` }}
         />
         <span className="task-v3__divider" aria-hidden />
       </div>

@@ -2,7 +2,7 @@
 // Стартовый грант: 15 кредитов уже на балансе (§5).
 // Ассеты — из конвейера (§1), LQIP-заглушки.
 import type { User } from '../types'
-import { asset, lqip } from '../lib/assets'
+import { asset } from '../lib/assets'
 import BeforeAfter from './BeforeAfter'
 
 interface Props {
@@ -29,10 +29,8 @@ export default function WelcomeScreen({ user, onSubscribe }: Props) {
         </p>
 
         <BeforeAfter
-          before={asset('_base/living_before', 'preview')}
-          after={asset('scandi/living_after', 'preview')}
-          beforeLqip={lqip('_base/living_before')}
-          afterLqip={lqip('scandi/living_after')}
+          before={asset('01_base_before', 'card')}
+          after={asset('02_scandi_after', 'card')}
           height={250}
           labelAfter="После"
         />

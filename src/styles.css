@@ -1247,6 +1247,19 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   height: 100%;
   aspect-ratio: auto;
 }
+.job-card__seam-clip {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+.job-card__seam-clip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .job-card__mini {
   z-index: 4;
   bottom: auto;
@@ -1261,6 +1274,14 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
 }
 .job-card__mini { left: 8px; }
 .job-card__mini--r { right: 8px; left: auto; }
+.job-card__mini--toggle {
+  left: 8px;
+  right: auto;
+  cursor: pointer;
+  background: rgba(0,0,0,.7);
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  user-select: none;
+}
 .job-card__divider {
   position: absolute;
   top: 0;
@@ -1270,7 +1291,18 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   width: 2px;
   height: 100%;
   background: rgba(255,255,255,.85);
+  box-shadow: 0 0 4px rgba(0,0,0,.4);
   z-index: 2;
+}
+
+/* Оверлеи карточек стилей: gradient, frame */
+.style-card--gradient .job-card__plate,
+.styles-v3__card--gradient {
+  background: linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.35) 60%, transparent 100%) !important;
+}
+.style-card--frame,
+.styles-v3__card--frame {
+  box-shadow: inset 0 0 0 2px var(--primary), var(--shadow-card) !important;
 }
 
 /* --- BLOCKER-2: крупный заголовок задачи со скримом §6.2.2 --- */
