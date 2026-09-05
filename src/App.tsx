@@ -94,12 +94,32 @@ function App() {
           const userData = await getUser(DEV_USER_ID)
           setUser(userData)
         } catch {
-          const newUser = await createUser({
-            telegram_id: DEV_USER_ID, username: 'dev_user', first_name: 'Dev',
-          })
-          setUser(newUser)
+          try {
+            const newUser = await createUser({
+              telegram_id: DEV_USER_ID, username: 'dev_user', first_name: 'Dev',
+            })
+            setUser(newUser)
+          } catch {
+            // Офлайн фолбэк для превью
+            setUser({
+              telegram_id: DEV_USER_ID,
+              username: 'dev_user',
+              first_name: 'Андрей',
+              credits_paid: 100,
+              credits_free_daily: 2,
+              balance_line: 'Осталось 2 из 2 бесплатных дизайнов',
+              sheet_line: 'Тариф PRO',
+              balance_state: 'trial',
+              exhausted: false,
+              trial_days_left: 7,
+              is_subscribed: true,
+              tier: 'premium',
+              created_at: new Date().toISOString()
+            } as unknown as User)
+          }
         }
-        logEvent(DEV_USER_ID, 'app_open')
+        setIsSubscribed(true)
+        try { logEvent(DEV_USER_ID, 'app_open') } catch {}
         return
       }
 
