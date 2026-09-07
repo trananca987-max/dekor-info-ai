@@ -1,10 +1,8 @@
-// PATCH v2.2 §7.5: пополнение = bottom-sheet.
-// Карточки пакетов — радио-опции, выровнены по верху с фиксированным отступом.
-// Внизу ОДНА первичная кнопка «Оплатить · N ⭐» с подстановкой номинала.
-// Верхняя строка — текущее состояние (§7.5), не онбординг.
-// Разовые и подписки визуально разделены подзаголовками (§6).
-// Один бейдж на весь список. Звезда — один SVG, не эмодзи (§7.5).
-import { useState } from 'react'
+// FIX-1 §5: Шторка оплаты — пакеты Telegram Stars (10 / 30 / 100 дизайнов).
+// Никаких подписок, кредитов, уровней HD/Low. Единица измерения — дизайн.
+// Один бейдж «Выгодно» на 120★, процент экономии 20% / 30%.
+// Единый глиф звезды ★ на всём экране. Ссылка «Условия и поддержка».
+import { useState, useEffect } from 'react'
 import type { User } from '../types'
 import { buyPack, PACKS, PACK_ORDER, type PackId, logEvent } from '../api'
 
@@ -14,92 +12,167 @@ interface Props {
   onPaid: () => void
 }
 
-// §7.5: звезда — один SVG (разный рендер эмодзи на iOS и Android)
-const Star = () => (
-  <svg className="star-ic" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-    <path d="M12 2l2.9 6.26L21.5 9.3l-4.75 4.4 1.15 6.8L12 17.3l-5.9 3.2 1.15-6.8L2.5 9.3l6.6-1.04L12 2z" />
-  </svg>
-)
+// §5.2: Единый глиф звезды ★
+const Star = () => <span className="star-glyph" aria-hidden style={{ color: 'var(--tg-theme-accent-text-color, #2481cc)', fontWeight: 'bold' }}>★</span>
 
 export default function PricingSheet({ user, onClose, onPaid }: Props) {
   const tg = window.Telegram?.WebApp
-  const [selected, setSelected] = useState<PackId>('pack_s')
+  const [selected, setSelected] = useState<PackId>('pack_30') // по умолчанию рекомендуемый "Выгодно"
   const [busy, setBusy] = useState(false)
 
   const pack = PACKS[selected]
 
+  useEffect(() => {
+    // Включаем подтверждение закрытия только при активной шторке/оплате
+    return () => {
+      try {
+        tg?.disableClosingConfirmation?.()
+      } catch { /* ignore */ }
+    }
+  }, [tg])
+
   const handlePay = async () => {
+    if (busy) return
     tg?.HapticFeedback.impactOccurred('medium')
     setBusy(true)
+    try {
+      tg?.enableClosingConfirmation?.()
+    } catch { /* ignore */ }
+
     logEvent(user.telegram_id, 'package_selected', { pack: selected })
+
     try {
       const { invoice_url } = await buyPack(user.telegram_id, selected)
-      tg?.openInvoice(invoice_url, (status) => {
+
+      if (!tg?.openInvoice) {
+        // Фолбэк для обычного браузера при тестировании
+        window.open(invoice_url, '_blank')
         setBusy(false)
+        try { tg?.disableClosingConfirmation?.() } catch {}
+        return
+      }
+
+      tg.openInvoice(invoice_url, (status) => {
+        setBusy(false)
+        try { tg?.disableClosingConfirmation?.() } catch {}
+
         if (status === 'paid') {
-          tg?.HapticFeedback.notificationOccurred('success')
+          tg.HapticFeedback?.notificationOccurred('success')
           onPaid()
+          onClose()
+        } else if (status === 'cancelled') {
+          // Отмена пользователем — просто возвращаем кнопку в исходное состояние
         } else if (status === 'failed') {
-          tg?.showAlert?.('❌ Ошибка оплаты. Попробуйте ещё раз')
+          tg.showPopup?.({
+            title: 'Ошибка оплаты',
+            message: 'Не удалось завершить оплату в Telegram. Попробуйте ещё раз.',
+            buttons: [{ type: 'ok', text: 'Понятно' }],
+          })
         }
       })
-    } catch {
+    } catch (err) {
       setBusy(false)
-      tg?.showAlert?.('❌ Не удалось создать счёт. Попробуйте позже')
+      try { tg?.disableClosingConfirmation?.() } catch {}
+      tg?.showPopup?.({
+        title: 'Ошибка создания счёта',
+        message: 'Не удалось инициализировать оплату. Пожалуйста, попробуйте позже.',
+        buttons: [{ type: 'ok', text: 'Понятно' }],
+      })
     }
   }
 
-  // §6: разовые и подписки — отдельными группами
-  const groups: Array<{ name: string; ids: PackId[] }> = [
-    { name: 'Разовая покупка', ids: PACK_ORDER.filter(p => PACKS[p].kind === 'pack') },
-    { name: 'Подписка', ids: PACK_ORDER.filter(p => PACKS[p].kind === 'sub') },
-  ]
+  const handleShowTerms = () => {
+    tg?.HapticFeedback?.selectionChanged()
+    if (tg?.showPopup) {
+      tg.showPopup({
+        title: 'Условия и поддержка',
+        message: 'Купленные пакеты дизайнов действуют бессрочно. По всем вопросам обращений, списаний и работы сервиса пишите администратору: @stroitelinfo (официальная поддержка Telegram не обрабатывает запросы по ботам). Команды в чате бота: /terms, /support, /paysupport.',
+        buttons: [{ type: 'ok', text: 'Закрыть' }],
+      })
+    } else {
+      alert('Условия и поддержка: по всем вопросам пишите @stroitelinfo. Команды бота: /terms, /support, /paysupport.')
+    }
+  }
 
   return (
     <div className="overlay" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="bar" />
         <h2 className="card-t" style={{ fontSize: 18, marginBottom: 4 }}>Пополнить баланс</h2>
-        {/* §7.5: верхняя строка показывает текущее состояние */}
-        <p className="sub" style={{ marginBottom: 14 }}>{user.sheet_line}</p>
-
-        {groups.map(g => (
-          <div key={g.name}>
-            <div className="pack-group">{g.name}</div>
-            {g.ids.map((pid) => {
-              const p = PACKS[pid]
-              return (
-                <button key={pid} className={`pack ${selected === pid ? 'on' : ''}`}
-                  onClick={() => { setSelected(pid); tg?.HapticFeedback.selectionChanged() }}>
-                  {/* §7.5: один бейдж на весь список */}
-                  {p.badge && <span className="badge">{p.badge}</span>}
-                  <span className="radio" />
-                  <div className="pr">
-                    <b>{p.title.replace(/·\s*\d+\s*⭐.*$/, '·').replace(/·$/, '')}
-                      <span style={{ color: 'var(--star)', fontWeight: 600 }}>
-                        {' '}{p.price} <Star />{p.kind === 'sub' ? '/мес' : ''}
-                      </span>
-                    </b>
-                  </div>
-                  <div className="tiny pd">{p.desc}</div>
-                  {p.saving && <div className="saving">{p.saving}</div>}
-                </button>
-              )
-            })}
-          </div>
-        ))}
-
-        {/* §7.5: правила читаемым контрастом не ниже AA */}
-        <p className="sheet-rules">
-          • Купленные кредиты не сгорают<br />
-          • Дизайн — 5 кредитов · HD — 15 · 3 варианта — 10<br />
-          • При неудачной генерации кредиты возвращаются
+        <p className="sub" style={{ marginBottom: 14 }}>
+          {user.total_designs !== undefined
+            ? `Баланс: ${user.balance_line || `${user.total_designs} дизайнов`}`
+            : user.sheet_line || 'Выберите подходящий пакет дизайнов'}
         </p>
 
-        {/* Одна первичная кнопка с подстановкой номинала (§7.5) */}
-        <button className="btn" disabled={busy} onClick={handlePay}>
-          Оплатить · {pack.price} ⭐
+        <div className="pack-list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {PACK_ORDER.map((pid) => {
+            const p = PACKS[pid]
+            const isSelected = selected === pid
+
+            return (
+              <button
+                key={pid}
+                type="button"
+                className={`pack ${isSelected ? 'on' : ''}`}
+                onClick={() => {
+                  setSelected(pid)
+                  tg?.HapticFeedback?.selectionChanged()
+                }}
+              >
+                {/* Бейдж только на Выгодно (§5.2) */}
+                {p.badge && <span className="badge">{p.badge}</span>}
+                <span className="radio" />
+                <div className="pr">
+                  <b>
+                    {p.title} ·{' '}
+                    <span style={{ color: 'var(--tg-theme-accent-text-color, #2481cc)', fontWeight: 600 }}>
+                      {p.price} <Star />
+                    </span>
+                  </b>
+                </div>
+                {p.saving && <div className="saving">{p.saving}</div>}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* §5.2: Три строки правил */}
+        <p className="sheet-rules" style={{ marginTop: 14, marginBottom: 14, fontSize: 12.5, lineHeight: 1.45, color: 'var(--text-secondary)' }}>
+          • Купленные дизайны не сгорают<br />
+          • При неудачной генерации дизайн возвращается на баланс<br />
+          • Бесплатные обновляются каждую неделю
+        </p>
+
+        {/* §5.2: Первичная кнопка с подстановкой номинала */}
+        <button
+          type="button"
+          className="btn"
+          disabled={busy}
+          onClick={handlePay}
+          style={{ width: '100%', marginBottom: 10 }}
+        >
+          {busy ? 'Создание счёта...' : `Оплатить · ${pack.price} ★`}
         </button>
+
+        {/* §5.5: Ссылка на условия и поддержку */}
+        <div style={{ textAlign: 'center' }}>
+          <button
+            type="button"
+            onClick={handleShowTerms}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-tertiary, #888)',
+              fontSize: 12,
+              textDecoration: 'underline',
+              cursor: 'pointer',
+              padding: '4px 8px',
+            }}
+          >
+            Условия использования и поддержка
+          </button>
+        </div>
       </div>
     </div>
   )

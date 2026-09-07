@@ -202,7 +202,7 @@ async def check_user_subscription(request: dict):
 
 
 def _user_response(user, db) -> dict:
-    """Публичный профиль: кошельки + строки баланса (§7.1, §7.5)."""
+    """Публичный профиль: кошельки + строки баланса (§6)."""
     eco.ensure_daily_wallet(user)
     _notify_day6(user, db)
     db.commit()
@@ -213,9 +213,9 @@ def _user_response(user, db) -> dict:
         "first_name": user.first_name,
         "credits_paid": user.credits_paid or 0,
         "credits_free_daily": user.credits_free_daily or 0,
-        # §7.1: нейтральная строка главного экрана, без слов «кредит»/«черновик»
+        "total_designs": bal["total_designs"],
         "balance_line": bal["line"],
-        # §7.5: верхняя строка шита пополнения — текущее состояние
+        "balance_sub_line": bal["sub_line"],
         "sheet_line": bal["sheet_line"],
         "balance_state": bal["state"],
         "exhausted": bal["exhausted"],
@@ -226,12 +226,11 @@ def _user_response(user, db) -> dict:
         "quota_hd": user.quota_hd or 0,
         "is_subscribed": bool(user.is_subscribed),
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        # §7.2: отсчёт первой недели — фронт решает лимит вариантов (2 первую неделю, далее 1)
         "first_seen_at": user.first_seen_at.isoformat() if user.first_seen_at else None,
         "total_generations": db.query(Generation).filter(Generation.user_id == user.telegram_id).count(),
-        # совместимость со старым фронтом
+        # совместимость
         "credits": user.credits_paid or 0,
-        "free_generations": 0,
+        "free_generations": user.credits_free_daily or 0,
     }
 
 
@@ -297,17 +296,161 @@ async def catalog():
 
 @app.get("/api/packs")
 async def list_packs():
-    """Каталог пакетов для шторки пополнения (§6)."""
+    """Каталог пакетов для шторки пополнения (§5.2)."""
     return {
         "order": eco.PACK_ORDER,
         "packs": {pid: eco.PACKS[pid] for pid in eco.PACK_ORDER},
-        "design_cost": eco.COST_MEDIUM,
-        "hd_cost": eco.COST_HD,
-        "variations_cost": eco.COST_VARIATIONS,
+        "cost_per_image_rub": eco.COST_PER_IMAGE_RUB,
     }
 
 
-# === PHOTO UPLOAD ===
+# === ОПЛАТА (§5): Telegram Stars, пакеты 10 / 30 / 100 дизайнов ===
+
+@app.post("/api/buy")
+async def create_invoice(request: dict):
+    user_id = request.get("user_id")
+    pack_id = request.get("pack", "pack_10")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    if pack_id not in eco.PACKS:
+        raise HTTPException(status_code=400, detail=f"Unknown pack: {pack_id}")
+    pack = eco.PACKS[pack_id]
+
+    payload = json.dumps({
+        "user_id": user_id,
+        "product": pack_id,
+        "designs": pack["designs"],
+        "timestamp": int(datetime.now().timestamp())
+    })
+    try:
+        invoice_url = await create_invoice_link(
+            title=f"Пакет «{pack['title']}»",
+            description=f"Пополнение баланса в Декор Инфо AI Designer на {pack['title']}",
+            payload=payload,
+            currency="XTR",  # Telegram Stars
+            prices=[{"label": pack["title"], "amount": pack["price"]}]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {"invoice_url": invoice_url}
+
+
+@app.post("/api/telegram-webhook")
+async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
+    update = await request.json()
+
+    # 1. Pre-checkout query (§5.4): ответ в течение 10 секунд
+    if "pre_checkout_query" in update:
+        pcq = update["pre_checkout_query"]
+        if bot is not None:
+            try:
+                payload = json.loads(pcq.get("invoice_payload", "{}"))
+                pack_id = payload.get("product")
+                if pack_id in eco.PACKS:
+                    await bot.answer_pre_checkout_query(pre_checkout_query_id=pcq["id"], ok=True)
+                else:
+                    await bot.answer_pre_checkout_query(
+                        pre_checkout_query_id=pcq["id"],
+                        ok=False,
+                        error_message="Выбранный пакет более недоступен. Пожалуйста, откройте меню заново."
+                    )
+            except Exception as e:
+                print(f"Pre-checkout error: {e}")
+                await bot.answer_pre_checkout_query(pre_checkout_query_id=pcq["id"], ok=True)
+        return {"ok": True}
+
+    # 2. Successful payment (§5.4): начисление строго после подтверждения оплаты
+    if "message" in update and "successful_payment" in update["message"]:
+        payment_data = update["message"]["successful_payment"]
+        user_id = update["message"]["from"]["id"]
+        charge_id = payment_data.get("telegram_payment_charge_id", "")
+        payload = json.loads(payment_data.get("invoice_payload", "{}"))
+        pack_id = payload.get("product")
+
+        # Идемпотентность (§5.4): проверяем, не был ли этот charge_id уже обработан
+        existing_payment = db.query(Payment).filter(
+            Payment.telegram_payment_charge_id == charge_id
+        ).first()
+
+        if not existing_payment:
+            db.add(Payment(
+                user_id=user_id,
+                telegram_payment_charge_id=charge_id,
+                product=pack_id or "stars_pack",
+                stars_paid=payment_data.get("total_amount", 0),
+                status="completed",
+            ))
+
+            user = db.query(User).filter(User.telegram_id == user_id).first()
+            designs_added = 0
+            if user:
+                pack = eco.PACKS.get(pack_id)
+                user.has_ever_paid = True  # после первой покупки статус платящего
+                if pack:
+                    designs_added = pack["designs"]
+                    user.credits_paid = (user.credits_paid or 0) + designs_added
+                else:
+                    # Фолбэк по сумме
+                    designs_added = payload.get("designs", 10)
+                    user.credits_paid = (user.credits_paid or 0) + designs_added
+                db.commit()
+
+            db.add(AnalyticsEvent(
+                user_id=user_id,
+                event="payment_success",
+                payload=json.dumps({"product": pack_id, "stars": payment_data.get("total_amount", 0), "charge_id": charge_id})
+            ))
+            db.commit()
+
+            total_now = (user.credits_paid or 0) + (user.credits_free_daily or 0) if user else 0
+            await send_message(
+                user_id,
+                f"✅ *Оплата прошла успешно!*\n\n"
+                f"Зачислено: *{eco.plural_designs(designs_added)}*\n"
+                f"Текущий баланс: *{eco.plural_designs(total_now)}*\n"
+                f"Receipt ID: `{charge_id}`\n\n"
+                f"Приятного использования! Купленные дизайны не сгорают.",
+                parse_mode="Markdown",
+            )
+        return {"ok": True}
+
+    # 3. Сервисные команды бота (§5.5 — требования Telegram Stars)
+    if "message" in update and "text" in update["message"]:
+        text = update["message"].get("text", "").strip()
+        user_id = update["message"]["from"]["id"]
+
+        if text == "/terms":
+            terms_text = (
+                "📋 *Условия использования и покупки (Декор Инфо AI Designer)*\n\n"
+                "1. **Предмет**: Сервис предоставляет доступ к генерациям AI-дизайнов интерьеров и экстерьеров.\n"
+                "2. **Оплата**: Оплата производится цифровой валютой Telegram Stars (XTR).\n"
+                "3. **Срок действия**: Купленные пакеты дизайнов не сгорают и действуют бессрочно.\n"
+                "4. **Возврат**: В случае технического сбоя генерации потраченный дизайн автоматически возвращается на ваш баланс в приложении.\n"
+                "5. **Поддержка**: По любым вопросам и спорным операциям обращайтесь к администратору: @stroitelinfo"
+            )
+            await send_message(user_id, terms_text, parse_mode="Markdown")
+            return {"ok": True}
+
+        if text == "/support":
+            support_text = (
+                "🛟 *Служба поддержки Декор Инфо AI Designer*\n\n"
+                "По всем вопросам работы сервиса, генераций и предложений пишите: @stroitelinfo\n\n"
+                "⚠️ *Обратите внимание*: Официальная служба поддержки Telegram не обрабатывает вопросы по покупкам и работе внутри сторонних ботов. Все обращения принимаются напрямую нашей поддержкой."
+            )
+            await send_message(user_id, support_text, parse_mode="Markdown")
+            return {"ok": True}
+
+        if text == "/paysupport":
+            paysupport_text = (
+                "💳 *Поддержка по платежам и Telegram Stars*\n\n"
+                "Если у вас возникли вопросы по списанию Stars, начислению дизайнов или возвратам:\n"
+                "Напишите нам: @stroitelinfo\n\n"
+                "Укажите ваш Telegram ID и, если сохранился, Receipt ID транзакции."
+            )
+            await send_message(user_id, paysupport_text, parse_mode="Markdown")
+            return {"ok": True}
+
+    return {"ok": True}
 
 @app.post("/api/upload")
 async def upload_photo(file: UploadFile = File(...), user_id: int = Form(None)):
@@ -337,65 +480,29 @@ async def upload_photo(file: UploadFile = File(...), user_id: int = Form(None)):
 # === СПИСАНИЯ (§5): единственный источник истины — сервер ===
 
 def _charge(user, quality: str, db) -> tuple:
-    """
-    Списывает оплату за генерацию. Возвращает (wallet, engine_tier, cost).
-    wallet: 'free_daily' | 'quota' | 'paid' — куда возвращать при ошибке.
+    """Списывает 1 дизайн за генерацию (§5). Возвращает (wallet, engine_tier, cost).
 
-    Правила (§5): credits_free_daily тратится ТОЛЬКО на Low,
-    на Medium и HD не применяется даже как частичная доплата.
+    Сначала списывает бесплатные (credits_free_daily), затем купленные (credits_paid).
     """
     eco.ensure_daily_wallet(user)
 
-    if quality == "low":
-        if eco.sub_active(user) and (user.quota_low or 0) > 0:
-            user.quota_low -= 1
-            return "quota", "free_low", 0
-        if (user.credits_free_daily or 0) >= eco.COST_LOW:
-            user.credits_free_daily -= eco.COST_LOW
-            return "free_daily", "free_low", eco.COST_LOW
-        if (user.credits_paid or 0) >= eco.COST_LOW:
-            user.credits_paid -= eco.COST_LOW
-            return "paid", "free_low", eco.COST_LOW
-        raise HTTPException(status_code=402, detail="Не хватает кредитов. Пополните баланс")
+    if (user.credits_free_daily or 0) >= eco.COST_DESIGN:
+        user.credits_free_daily -= eco.COST_DESIGN
+        return "free_daily", "premium", eco.COST_DESIGN
 
-    if quality == "medium":
-        if eco.sub_active(user) and (user.quota_medium or 0) > 0:
-            user.quota_medium -= 1
-            return "quota", "premium", 0
-        if (user.credits_paid or 0) >= eco.COST_MEDIUM:
-            user.credits_paid -= eco.COST_MEDIUM
-            return "paid", "premium", eco.COST_MEDIUM
-        raise HTTPException(
-            status_code=402,
-            detail=f"Нужно {eco.COST_MEDIUM} кредитов. Пополните баланс")
+    if (user.credits_paid or 0) >= eco.COST_DESIGN:
+        user.credits_paid -= eco.COST_DESIGN
+        return "paid", "premium", eco.COST_DESIGN
 
-    if quality == "hd":
-        if eco.sub_active(user) and user.tier == "premium" and (user.quota_hd or 0) > 0:
-            user.quota_hd -= 1
-            return "quota", "premium_pro", 0
-        if (user.credits_paid or 0) >= eco.COST_HD:
-            user.credits_paid -= eco.COST_HD
-            return "paid", "premium_pro", eco.COST_HD
-        raise HTTPException(
-            status_code=402,
-            detail=f"Нужно {eco.COST_HD} кредитов. Пополните баланс")
-
-    raise HTTPException(status_code=400, detail="Invalid quality")
+    raise HTTPException(status_code=402, detail="Дизайны закончились. Пополните баланс")
 
 
 def _refund(user, wallet: str, cost: int, quality: str):
-    """Возврат на тот кошелёк, с которого списано (§7.5)."""
+    """Возврат на тот кошелёк, с которого списано (§5.2)."""
     if wallet == "free_daily":
         user.credits_free_daily = (user.credits_free_daily or 0) + cost
     elif wallet == "paid":
         user.credits_paid = (user.credits_paid or 0) + cost
-    elif wallet == "quota":
-        if quality == "low":
-            user.quota_low = (user.quota_low or 0) + 1
-        elif quality == "hd":
-            user.quota_hd = (user.quota_hd or 0) + 1
-        else:
-            user.quota_medium = (user.quota_medium or 0) + 1
 
 
 async def process_generation(task_id: str, file_path: str, style_prompt: str,
@@ -895,102 +1002,6 @@ async def claim_bonus(request: dict, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True, "reward": eco.BONUS_REWARDS[action],
             "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
-
-
-# === ОПЛАТА (§6): Telegram Stars, номиналы 50/250/150/350 ===
-
-@app.post("/api/buy")
-async def create_invoice(request: dict):
-    user_id = request.get("user_id")
-    pack_id = request.get("pack", "pack_s")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id is required")
-    if pack_id not in eco.PACKS:
-        raise HTTPException(status_code=400, detail=f"Unknown pack: {pack_id}")
-    pack = eco.PACKS[pack_id]
-
-    payload = json.dumps({
-        "user_id": user_id,
-        "product": pack_id,
-        "timestamp": int(datetime.now().timestamp())
-    })
-    try:
-        invoice_url = await create_invoice_link(
-            title=pack["title"],
-            description=pack["desc"],
-            payload=payload,
-            currency="XTR",  # Telegram Stars
-            prices=[{"label": pack["title"], "amount": pack["price"]}]
-        )
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    return {"invoice_url": invoice_url}
-
-
-@app.post("/api/telegram-webhook")
-async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
-    update = await request.json()
-
-    if "pre_checkout_query" in update:
-        pcq = update["pre_checkout_query"]
-        if bot is not None:
-            await bot.answer_pre_checkout_query(pre_checkout_query_id=pcq["id"], ok=True)
-        return {"ok": True}
-
-    if "message" in update and "successful_payment" in update["message"]:
-        payment_data = update["message"]["successful_payment"]
-        user_id = update["message"]["from"]["id"]
-        payload = json.loads(payment_data["invoice_payload"])
-
-        db.add(Payment(
-            user_id=user_id,
-            telegram_payment_charge_id=payment_data["telegram_payment_charge_id"],
-            product=payload["product"],
-            stars_paid=payment_data["total_amount"],
-            status="completed",
-        ))
-
-        user = db.query(User).filter(User.telegram_id == user_id).first()
-        credited_desc = payload["product"]
-        if user:
-            pack = eco.PACKS.get(payload["product"])
-            user.has_ever_paid = True  # §5: после первой покупки 10/день навсегда
-            if pack:
-                if pack["kind"] == "pack":
-                    user.credits_paid = (user.credits_paid or 0) + pack["credits"]
-                    credited_desc = f"{pack['credits']} кредитов"
-                else:
-                    tier = "pro" if payload["product"] == "sub_pro" else "premium"
-                    user.tier = tier
-                    user.tier_expires_at = datetime.utcnow() + timedelta(days=30)
-                    q = pack["quota"]
-                    user.quota_medium = q["medium"]
-                    user.quota_low = q["low"]
-                    user.quota_hd = q["hd"]
-                    credited_desc = f"Подписка {tier.upper()} на 30 дней"
-        db.commit()
-
-        db.add(AnalyticsEvent(user_id=user_id, event="payment_success",
-                              payload=json.dumps({"product": payload["product"],
-                                                  "stars": payment_data["total_amount"]})))
-        db.commit()
-
-        await send_message(
-            user_id,
-            f"✅ Оплата прошла успешно!\n\n"
-            f"Зачислено: {credited_desc}\n"
-            f"Баланс: {user.credits_paid if user else '?'} кредитов\n"
-            f"Receipt ID: `{payment_data['telegram_payment_charge_id']}`",
-            parse_mode="Markdown",
-        )
-        return {"ok": True}
-
-    if "message" in update and update["message"].get("text") == "/paysupport":
-        user_id = update["message"]["from"]["id"]
-        await send_message(user_id, "🛟 По вопросам оплаты обращайтесь: @stroitelinfo")
-        return {"ok": True}
-
-    return {"ok": True}
 
 
 # === SPA frontend (Docker-деплой): раздаём собранный Vite dist ===

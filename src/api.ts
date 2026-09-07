@@ -127,29 +127,46 @@ export const getUserGenerations = async (userId: number): Promise<Generation[]> 
   return response.data
 }
 
-// === Оплата (§6): номиналы Telegram 50/250/150/350, разовые и подписки разделены ===
-export type PackId = 'pack_s' | 'pack_m' | 'sub_pro' | 'sub_premium'
+// === Оплата (§5.2): пакеты Telegram Stars (10 / 30 / 100 дизайнов) ===
+export type PackId = 'pack_10' | 'pack_30' | 'pack_100'
 
 export interface PackInfo {
-  credits: number
+  designs: number
   price: number
   title: string
   desc: string
   badge: string | null
-  kind: 'pack' | 'sub'
-  group: string
   saving?: string | null
-  quota?: { medium: number; low: number; hd: number }
 }
 
 export const PACKS: Record<PackId, PackInfo> = {
-  pack_s: { credits: 50, price: 50, title: '10 дизайнов · 50 ⭐', desc: '50 кредитов — хватит на 10 дизайнов', badge: null, kind: 'pack', group: 'Разовая покупка' },
-  pack_m: { credits: 300, price: 250, title: '60 дизайнов · 250 ⭐', desc: '300 кредитов — хватит на 60 дизайнов', badge: 'Выгодно', kind: 'pack', group: 'Разовая покупка', saving: 'Экономия 20%' },
-  sub_pro: { credits: 0, price: 150, title: 'PRO · 150 ⭐/мес', desc: '40 Medium + 200 быстрых вариантов Low', badge: null, kind: 'sub', group: 'Подписка', quota: { medium: 40, low: 200, hd: 0 } },
-  sub_premium: { credits: 0, price: 350, title: 'PREMIUM · 350 ⭐/мес', desc: '20 HD + 60 Medium + 300 Low', badge: null, kind: 'sub', group: 'Подписка', quota: { medium: 60, low: 300, hd: 20 } },
+  pack_10: {
+    designs: 10,
+    price: 50,
+    title: '10 дизайнов',
+    desc: '10 дизайнов',
+    badge: null,
+    saving: null,
+  },
+  pack_30: {
+    designs: 30,
+    price: 120,
+    title: '30 дизайнов',
+    desc: '30 дизайнов',
+    badge: 'Выгодно',
+    saving: 'Экономия 20%',
+  },
+  pack_100: {
+    designs: 100,
+    price: 350,
+    title: '100 дизайнов',
+    desc: '100 дизайнов',
+    badge: null,
+    saving: 'Экономия 30%',
+  },
 }
 
-export const PACK_ORDER: PackId[] = ['pack_s', 'pack_m', 'sub_pro', 'sub_premium']
+export const PACK_ORDER: PackId[] = ['pack_10', 'pack_30', 'pack_100']
 
 export const buyPack = async (userId: number, pack: PackId): Promise<{ invoice_url: string }> => {
   const response = await api.post('/api/buy', { user_id: userId, pack })

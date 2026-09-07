@@ -4,26 +4,24 @@ export interface User {
   telegram_id: number;
   username?: string;
   first_name: string;
-  // Два кошелька (§5)
-  credits_paid: number;        // купленные/стартовые — не сгорают, любая модель
-  credits_free_daily: number;  // бесплатные — только Low, сгорают в 00:00
-  // §7.1: нейтральная строка главного экрана (без «кредит»/«черновик»)
-  balance_line: string;
-  // §7.5: верхняя строка шита пополнения — текущее состояние
-  sheet_line: string;
+  // Два кошелька (§5, §6)
+  credits_paid: number;        // купленные/стартовые дизайны (не сгорают)
+  credits_free_daily: number;  // бесплатные дизайны
+  total_designs?: number;      // сумма купленных и бесплатных
+  balance_line: string;        // «12 дизайнов» или «Дизайны закончились»
+  balance_sub_line?: string;   // «Бесплатные обновятся 14 сентября»
+  sheet_line: string;          // верхняя строка шторки
   balance_state: 'trial' | 'paid_daily' | 'weekly';
   exhausted: boolean;
   trial_days_left: number;
-  tier?: string;               // free | pro | premium
+  tier?: string;
   quota_medium?: number;
   quota_low?: number;
   quota_hd?: number;
   is_subscribed: boolean;
   created_at?: string;
-  // §7.2: отсчёт первой недели от первого запуска мини-аппа
   first_seen_at?: string;
   total_generations?: number;
-  // совместимость со старыми экранами
   credits?: number;
   free_generations?: number;
 }
@@ -75,6 +73,8 @@ export interface TelegramWebApp {
   themeParams?: Record<string, string>;
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
+  enableClosingConfirmation?: () => void;
+  disableClosingConfirmation?: () => void;
   disableVerticalSwipes?: () => void;
   onEvent?: (event: string, cb: () => void) => void;
   CloudStorage?: {
