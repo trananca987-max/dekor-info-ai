@@ -13,6 +13,7 @@ import MainScreen from './components/MainScreen'
 import StylesScreen from './components/StylesScreen'
 import TaskScreen from './components/TaskScreen'
 import UploadScreen from './components/UploadScreen'
+import ResultScreen from './components/ResultScreen'
 
 // === §3: инициализация вьюпорта ===
 function syncViewport() {
@@ -191,6 +192,13 @@ function App() {
           element={
             !user ? <Navigate to="/" replace /> :
             <UploadScreen user={user} onUserUpdate={setUser} />
+          }
+        />
+        <Route
+          path="/result/:id"
+          element={
+            !user ? <Navigate to="/" replace /> :
+            <ResultScreen user={user} />
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

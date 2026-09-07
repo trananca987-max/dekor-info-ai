@@ -1,8 +1,9 @@
 {
-  "$comment": "Единственный источник правды по ассетам (этап A). Скрипт build-assets-v2.mjs ТОЛЬКО читает этот файл и пишет в public/assets/. Рукописный — не перезаписывается сборкой.",
+  "$comment": "Единственный источник правды по ассетам (этап A / B). Скрипт build-assets-v2.mjs ТОЛЬКО читает этот файл и пишет в public/assets/. Рукописный — не перезаписывается сборкой.",
   "src_dirs": [
     "/Users/andrey/Downloads/Interior_Part_01",
-    "/Users/andrey/Downloads/Interior_Part_02"
+    "/Users/andrey/Downloads/Interior_Part_02",
+    "/Users/andrey/Downloads/Новая папка 7"
   ],
   "out_dir": "public/assets",
   "budgets": { "card": 153600, "full": 409600 },
@@ -21,25 +22,32 @@
     "07": { "kind": "style", "src": "UgwPzfta", "file": "07_japandi_after.webp", "id": "japandi", "title": "Джапанди", "tier": 2, "order": 2, "overlay": "plain", "after": true },
     "08": { "kind": "style", "src": "3zk89b7E", "file": "08_minimalism_after.webp", "id": "minimalism", "title": "Минимализм", "tier": 2, "order": 15, "overlay": "frame", "after": true },
     "09": { "kind": "style", "src": "PVwxicSi", "file": "09_neoclassic_after.webp", "id": "neoclassic", "title": "Неоклассика", "tier": 2, "order": 6, "overlay": "plain", "after": true },
-    "10": { "kind": "style", "src": "W8zRsWGj", "file": "10_classic_after.webp", "id": "classic", "title": "Классика", "tier": 2, "order": 12, "overlay": "plain", "after": true, "note": "кадр под вопросом — контент-ревью отдельно, кодирование штатное" },
+    "10": { "kind": "style", "src": "W8zRsWGj", "file": "10_classic_after.webp", "id": "classic", "title": "Классика", "tier": 2, "order": 12, "overlay": "plain", "after": true },
     "11": { "kind": "style", "src": "w6IqaYB6", "file": "11_provence_after.webp", "id": "provence", "title": "Прованс", "tier": 2, "order": 7, "overlay": "gradient", "after": true },
     "12": { "kind": "style", "src": "DGiOyeYq", "file": "12_boho_after.webp", "id": "boho", "title": "Бохо", "tier": 2, "order": 3, "overlay": "plain", "after": true },
     "13": { "kind": "style", "src": "rinrXFQZ", "file": "13_artdeco_after.webp", "id": "artdeco", "title": "Ар-деко", "tier": 2, "order": 4, "overlay": "plain", "after": true },
     "14": { "kind": "style", "src": "KUAKB5zf", "file": "14_midcentury_after.webp", "id": "midcentury", "title": "Мид-сенчури", "tier": 2, "order": 5, "overlay": "plain", "after": true },
     "15": { "kind": "style", "src": "KZpVJ6dz", "file": "15_wabisabi_after.webp", "id": "wabisabi", "title": "Ваби-саби", "tier": 2, "order": 16, "overlay": "frame", "after": true },
-    "16": { "kind": "style", "src": "U6gQA6s2", "file": "16_hitech_after.webp", "id": "hitech", "title": "Хай-тек · вечер", "tier": 2, "order": 13, "overlay": "plain", "after": true, "renamed_from": "Хай-тек" },
+    "16": { "kind": "style", "src": "U6gQA6s2", "file": "16_hitech_after.webp", "id": "hitech", "title": "Хай-тек · вечер", "tier": 2, "order": 13, "overlay": "plain", "after": true },
     "17": { "kind": "style", "src": "RlWrDN4c", "file": "17_mediterranean_after.webp", "id": "mediterranean", "title": "Средиземноморский", "tier": 2, "order": 10, "overlay": "frame", "after": true },
-    "18": { "kind": "style", "src": "ZY0x0vRe", "file": "18_chalet_after.webp", "id": "chalet", "title": "Шале", "tier": 2, "order": 14, "overlay": "plain", "after": true, "renamed_from": "Деревенский" },
+    "18": { "kind": "style", "src": "ZY0x0vRe", "file": "18_chalet_after.webp", "id": "chalet", "title": "Шале", "tier": 2, "order": 14, "overlay": "plain", "after": true },
     "19": { "kind": "style", "src": "Vpc1s9ct", "file": "19_english_after.webp", "id": "english", "title": "Английский", "tier": 2, "order": 8, "overlay": "plain", "after": true },
     "20": { "kind": "style", "src": "RisYDzK0", "file": "20_ecoorganic_after.webp", "id": "ecoorganic", "title": "Эко-органика", "tier": 2, "order": 9, "overlay": "plain", "after": true },
     "21": { "kind": "style", "src": "BGho1h1i", "file": "21_glamour_after.webp", "id": "glamour", "title": "Гламур", "tier": 2, "order": 11, "overlay": "gradient", "after": true },
 
-    "22": { "kind": "task", "src": "amcrgT8v", "file": "22_declutter_before.webp", "id": "declutter", "title": "Убрать лишнее", "subtitle": "Уберём хлам — мебель останется", "role": "before", "compare": "static_seam", "seam": 0.45 },
-    "23": { "kind": "task", "src": "KcKCnuKF", "file": "23_declutter_after.webp", "id": "declutter", "title": "Убрать лишнее", "subtitle": "Уберём хлам — мебель останется", "role": "after", "compare": "static_seam", "seam": 0.45 },
-    "24": { "kind": "task", "src": "DNkbYNqe", "file": "24_facade_before.webp", "id": "facade", "title": "Фасад дома", "subtitle": "Отделка и окна за минуту", "role": "before", "compare": "static_seam", "seam": 0.53 },
-    "25": { "kind": "task", "src": "9n3UKuAS", "file": "25_facade_after.webp", "id": "facade", "title": "Фасад дома", "subtitle": "Отделка и окна за минуту", "role": "after", "compare": "static_seam", "seam": 0.53 },
-    "26": { "kind": "task", "src": "idkFOVIV", "file": "26_garden_before.webp", "id": "garden", "title": "Сад и участок", "subtitle": "Газон, дорожки, посадки", "role": "before", "compare": "toggle", "seam": null },
-    "27": { "kind": "task", "src": "PLxd8egc", "file": "27_garden_after.webp", "id": "garden", "title": "Сад и участок", "subtitle": "Газон, дорожки, посадки", "role": "after", "compare": "toggle", "seam": null },
+    "24": { "kind": "task", "src": "DNkbYNqe", "file": "24_facade_before.webp", "id": "facade", "title": "Фасад дома", "subtitle": "Отделка и окна за минуту", "role": "before", "compare": "static_seam", "seam": 0.53, "seam_verified": true, "order": 1 },
+    "25": { "kind": "task", "src": "9n3UKuAS", "file": "25_facade_after.webp", "id": "facade", "title": "Фасад дома", "subtitle": "Отделка и окна за минуту", "role": "after", "compare": "static_seam", "seam": 0.53, "seam_verified": true, "order": 1 },
+
+    "26": { "kind": "task", "src": "idkFOVIV", "file": "26_garden_before.webp", "id": "garden", "title": "Сад и участок", "subtitle": "Газон, дорожки, посадки", "role": "before", "compare": "static_seam", "seam": 0.50, "seam_verified": true, "order": 2 },
+    "27": { "kind": "task", "src": "PLxd8egc", "file": "27_garden_after.webp", "id": "garden", "title": "Сад и участок", "subtitle": "Газон, дорожки, посадки", "role": "after", "compare": "static_seam", "seam": 0.50, "seam_verified": true, "order": 2 },
+
+    "22": { "kind": "task", "src": "amcrgT8v", "file": "22_declutter_before.webp", "id": "declutter", "title": "Убрать лишнее", "subtitle": "Уберём хлам — мебель останется", "role": "before", "compare": "static_seam", "seam": 0.45, "seam_verified": true, "order": 3 },
+    "23": { "kind": "task", "src": "KcKCnuKF", "file": "23_declutter_after.webp", "id": "declutter", "title": "Убрать лишнее", "subtitle": "Уберём хлам — мебель останется", "role": "after", "compare": "static_seam", "seam": 0.45, "seam_verified": true, "order": 3 },
+
+    "33": { "kind": "task", "src": "33_paint_after.png", "file": "33_paint_after.webp", "id": "paint", "title": "Покраска стен", "subtitle": "Цвет без ремонта", "role": "after", "before_slot": "01", "compare": "static_seam", "seam": 0.50, "seam_verified": false, "order": 4 },
+
+    "34": { "kind": "task", "src": "34_furniture_before.png", "file": "34_furniture_before.webp", "id": "furniture", "title": "Расстановка мебели", "subtitle": "Тот же метраж — больше места", "role": "before", "compare": "static_seam", "seam": 0.50, "seam_verified": false, "order": 5 },
+    "35": { "kind": "task", "src": "35_furniture_after.png", "file": "35_furniture_after.webp", "id": "furniture", "title": "Расстановка мебели", "subtitle": "Тот же метраж — больше места", "role": "after", "compare": "static_seam", "seam": 0.50, "seam_verified": false, "order": 5 },
 
     "28": { "kind": "util", "src": "pYmTly0C", "file": "28_shooting_guide.webp", "title": "Гид по съёмке", "where": "подсказка перед загрузкой фото", "ratio": "16:9" },
     "29": { "kind": "util", "src": "wnzn4grp", "file": "29_empty_state.webp", "title": "Ваших работ пока нет", "where": "«Ваши работы» пусто", "ratio": "4:3" },

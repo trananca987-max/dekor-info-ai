@@ -1466,8 +1466,282 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   color: var(--text-secondary);
 }
 
-/* --- HIGH-6: плашка лимита — одна строка, без дублей --- */
-.home-v3__limit-lbl { display: none; }
-.home-v3__limit-btn strong {
-  font-weight: 600;
+/* =========================================================================
+   PATCH v5 (SPEC §2, §3, §4): Сетка стилей 2х2, Карусель задач static_seam, /styles
+========================================================================= */
+
+/* Сетка 2×2 популярных стилей Уровня 1 (§2) */
+.home-v3__styles-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 6px;
 }
+
+.style-grid-card {
+  position: relative;
+  width: 100%;
+  border-radius: var(--r-card, 16px);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  outline: none;
+}
+
+.style-grid-card__frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  overflow: hidden;
+}
+
+.style-grid-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Сегмент-контрол было/стало (76×28 px) в правом верхнем углу */
+.style-grid-card__switcher {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  width: 76px;
+  height: 28px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  border-radius: 999px;
+  display: flex;
+  padding: 2px;
+  gap: 2px;
+  box-sizing: border-box;
+}
+
+.style-grid-card__switch-btn {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.style-grid-card__switch-btn--active {
+  background: #ffffff;
+  color: #111111;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.style-grid-card__plate {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 20px 10px 8px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.3) 60%, transparent 100%);
+  color: #ffffff;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.style-grid-card__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.style-grid-card--gradient .style-grid-card__plate {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.45) 60%, transparent 100%) !important;
+}
+
+.style-grid-card--frame {
+  box-shadow: inset 0 0 0 2px var(--tg-theme-accent-text-color, #2481cc) !important;
+}
+
+/* Карусель задач «Дом и участок» (Дополнение 1) */
+.home-v3__tasks-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.home-v3__carousel--tasks {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  gap: 12px;
+  padding: 0 16px 4px 16px;
+  margin: 0 -16px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.home-v3__carousel--tasks::-webkit-scrollbar {
+  display: none;
+}
+
+.home-v3__carousel--tasks .job-card {
+  flex: 0 0 calc(100vw - 64px);
+  max-width: 320px;
+  scroll-snap-align: center;
+  position: relative;
+  aspect-ratio: 4/3;
+  border-radius: var(--r-card, 16px);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.job-card__frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.job-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.job-card__seam-clip {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.job-card__divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.job-card__plate {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  padding: 22px 12px 10px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.3) 60%, transparent 100%);
+  color: #ffffff;
+  pointer-events: none;
+}
+
+.job-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  display: block;
+}
+
+.job-card__sub {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  display: block;
+  margin-top: 2px;
+}
+
+/* Экран /styles — карточки и выбор (§4) */
+.styles-v3__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.styles-v3__card-img-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/5;
+  border-radius: var(--r-card, 16px);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 2px solid transparent;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.styles-v3__card--selected .styles-v3__card-img-wrap {
+  border-color: var(--tg-theme-accent-text-color, #2481cc) !important;
+}
+
+.styles-v3__card-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tg-theme-accent-text-color, #2481cc);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  z-index: 5;
+  box-sizing: border-box;
+}
+
+.styles-v3__card-title {
+  padding: 6px 4px 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.styles-v3__cta-bar {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 16px calc(12px + var(--inset-bottom, 0px));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  margin: 16px -16px 0 -16px;
+  z-index: 10;
+}
+
+.styles-v3__cta-btn {
+  width: 100%;
+}
+

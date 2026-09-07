@@ -139,9 +139,15 @@ for (const entry of slotEntries) {
     process.exit(1);
   }
 
-  if (entry.kind === 'style' && entry.after !== true) {
-    console.error(`❌ Слот ${entry.slot}: у стиля after !== true`);
-    process.exit(1);
+  if (entry.kind === 'task') {
+    if (entry.seam === null || typeof entry.seam === 'undefined') {
+      console.error(`❌ Слот ${entry.slot}: у задачи поле seam обязательно и не может быть null/undefined`);
+      process.exit(1);
+    }
+    if (entry.compare !== 'static_seam') {
+      console.error(`❌ Слот ${entry.slot}: compare у задач может быть только static_seam (получено ${entry.compare})`);
+      process.exit(1);
+    }
   }
 
   const { img, w, h } = await loadImage(srcFile);
@@ -190,7 +196,8 @@ for (const entry of slotEntries) {
     full_w: fm.width, full_h: fm.height, full_size: full.buf.length,
     title: entry.title, id: entry.id, kind: entry.kind,
     tier: entry.tier, order: entry.order, overlay: entry.overlay,
-    compare: entry.compare, seam: entry.seam, subtitle: entry.subtitle,
+    compare: entry.compare, seam: entry.seam, seam_verified: entry.seam_verified,
+    before_slot: entry.before_slot, subtitle: entry.subtitle,
     role: entry.role, ratio: entry.ratio, where: entry.where,
   };
 
