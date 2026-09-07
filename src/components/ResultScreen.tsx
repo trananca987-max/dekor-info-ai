@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { User, Generation } from '../types'
-import { getUserGenerations, getUser, logEvent, API_URL } from '../api'
+import { getUserGenerations, getUser, sendResultToChat, logEvent, API_URL } from '../api'
 import { useBackButton } from '../hooks/useTelegramChrome'
 import BeforeAfter from './BeforeAfter'
 import BalanceRow from './BalanceRow'
@@ -41,12 +41,29 @@ export default function ResultScreen({ user, onUserUpdate }: Props) {
     }
   }, [user.telegram_id, genId])
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!work?.result_image_url) return
     logEvent(user.telegram_id, 'result_download_tap', { generation_id: genId })
+    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
     const fullUrl = work.result_image_url.startsWith('http')
       ? work.result_image_url
       : `${API_URL}${work.result_image_url}`
+
+    const tg = window.Telegram?.WebApp as any
+    if (tg?.downloadFile) {
+      tg.downloadFile({
+        url: fullUrl,
+        file_name: `dekorinfo-design-${genId}.jpg`
+      })
+    }
+
+    try {
+      const res = await sendResultToChat(user.telegram_id, genId, work.result_image_url)
+      if (res?.ok && tg?.showAlert) {
+        tg.showAlert('Фото отправлено вам в личный чат с ботом!')
+      }
+    } catch { /* fallback */ }
+
     const a = document.createElement('a')
     a.href = fullUrl
     a.download = `dekorinfo-design-${genId}.jpg`

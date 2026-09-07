@@ -18,7 +18,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { User } from '../types'
 import { useUploadFlow, REFINE_CHIPS } from '../hooks/useUploadFlow'
 import { useMainButton, useBackButton } from '../hooks/useTelegramChrome'
-import { COST_LOW, COST_MEDIUM, COST_HD, COST_VARIATIONS, logEvent, API_URL } from '../api'
+import { logEvent, API_URL } from '../api'
 import BeforeAfter from './BeforeAfter'
 
 interface Props {
@@ -107,7 +107,7 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
   const directionId = params.get('directionId') || undefined
 
   const flow = useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId })
-  const { step, setStep, previewUrl, quality, setQuality, busy, error } = flow
+  const { step, setStep, previewUrl, quality, busy, error } = flow
   const [hintsOpen, setHintsOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
 
@@ -119,9 +119,9 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
   // ===== §4.3 BackButton на каждом шаге; на processing — скрыта (нельзя уронить задачу) =====
   useBackButton({
     onBack: () => {
-      if (step === 'upload') navigate(-1)
+      if (step === 'upload') navigate('/home', { replace: true })
       else if (step === 'quality') setStep('upload')
-      else if (step === 'result') navigate('/home')
+      else if (step === 'result') navigate('/home', { replace: true })
       // processing: намеренно ничего — задача идёт
     },
     force: step !== 'processing',
@@ -132,14 +132,14 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
     switch (step) {
       case 'upload':
         return previewUrl
-          ? { text: 'Продолжить', enabled: true, onClick: () => setStep('quality') }
+          ? { text: 'Создать дизайн', enabled: true, onClick: () => flow.start() }
           : { text: '', enabled: false, onClick: () => {} }
       case 'quality':
         return { text: 'Создать дизайн', enabled: !busy, onClick: () => flow.start() }
       case 'processing':
         return { text: '', enabled: false, onClick: () => {} }
       case 'result':
-        return { text: 'Сохранить', enabled: !busy, onClick: flow.download }
+        return { text: 'Сохранить фото', enabled: !busy, onClick: flow.download }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, previewUrl, busy, quality, flow.resultUrl])
@@ -215,35 +215,17 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
 
   // ===== Шаг: quality =====
   if (step === 'quality') {
-    const freeLeft = user.credits_free_daily || 0
-    const dailyExhausted = freeLeft <= 0
     return (
       <div className="app__body upload-v3">
-        <h1 className="upload-v3__title">
-          {dailyExhausted ? 'Бесплатные дизайны на сегодня закончились' : 'Качество результата'}
-        </h1>
-        <p className="upload-v3__hint">
-          {dailyExhausted
-            ? 'Сделайте дизайн в полном качестве — без водяного знака'
-            : 'Быстрый вариант — чтобы мгновенно посмотреть идею'}
-        </p>
+        <h1 className="upload-v3__title">Создание дизайна</h1>
+        <p className="upload-v3__hint">Фото готово к обработке в выбранном стиле</p>
 
-        {!dailyExhausted && (
-          <button className={`act ${quality === 'low' ? 'on' : ''}`} onClick={() => setQuality('low')}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>Быстрый вариант</div>
-              <div className="tiny">Мгновенно · с водяным знаком · {freeLeft > 0 ? 'бесплатно сегодня' : `${COST_LOW} кредит`}</div>
-            </div>
-            <span className="p free">{freeLeft > 0 ? `Сегодня: ${freeLeft}` : `${COST_LOW} кр.`}</span>
-          </button>
-        )}
-
-        <button className={`act ${quality === 'medium' ? 'on' : ''}`} onClick={() => setQuality('medium')}>
+        <button className="act on" onClick={() => flow.start()}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Полное качество</div>
             <div className="tiny">Без водяного знака · детальная проработка</div>
           </div>
-          <span className="p">{COST_MEDIUM} кредитов</span>
+          <span className="p">1 дизайн</span>
         </button>
 
         {error && <div className="err">{error}</div>}
@@ -290,12 +272,36 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
   const hasVariants = flow.variants.length > 1
   return (
     <>
-      <div className="app__body result-dark" style={{ background: '#0F1013' }}>
-        <div onClick={() => setFullscreen(true)} style={{ cursor: 'zoom-in' }}>
+      <div className="app__body result-dark" style={{ background: '#0F1013', paddingTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <button
+            onClick={() => navigate('/home', { replace: true })}
+            style={{
+              background: 'rgba(255,255,255,0.1)',
+              border: 'none',
+              borderRadius: 16,
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 500,
+              padding: '6px 12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            ‹ На главную
+          </button>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 500 }}>
+            Готовый результат
+          </span>
+        </div>
+
+        <div onClick={() => setFullscreen(true)} style={{ cursor: 'zoom-in', borderRadius: 12, overflow: 'hidden' }}>
           <BeforeAfter
             before={`${API_URL}/uploads/${flow.fileId}`}
             after={`${API_URL}${flow.resultUrl}`}
-            labelAfter={flow.resultQuality === 'hd' ? 'HD' : 'После'}
+            labelAfter="После"
           />
         </div>
 
@@ -314,40 +320,28 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
           </div>
         )}
 
-        {flow.chargeLabel && (
-          <p className="tiny" style={{ textAlign: 'center', marginBottom: 10 }}>{flow.chargeLabel}</p>
-        )}
-
-        {flow.resultQuality === 'low' && (
-          <button className="wm-note" onClick={() => {
-            logEvent(user.telegram_id, 'wm_upgrade_clicked', { generation_id: flow.generationId })
-            flow.start('medium')
-          }}>
-            Без водяного знака — <b>в полном качестве</b>
+        {/* Действия: Сохранить и Поделиться */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
+          <button
+            className="btn"
+            style={{ margin: 0, padding: '12px 8px', fontSize: 14, fontWeight: 600 }}
+            disabled={busy}
+            onClick={flow.download}
+          >
+            💾 Сохранить
           </button>
-        )}
-
-        {flow.resultQuality !== 'hd' && (
-          <>
-            <button className="btn" disabled={busy} onClick={() => flow.doUpsell('hd')} style={{ marginBottom: 4 }}>
-              Сделать в высоком качестве
-            </button>
-            <p className="hd-price">{COST_HD} кредитов</p>
-          </>
-        )}
-        <button className="act" disabled={busy || (flow.variants.length >= (isFirstWeek(user) ? 2 : 1))}
-          onClick={() => flow.doUpsell('variations')}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Другой вариант</div>
-            <div className="tiny">
-              Тот же стиль, другая расстановка · осталось {Math.max(0, (isFirstWeek(user) ? 2 : 1) - flow.variants.length)}
-            </div>
-          </div>
-          <span className="p">{COST_VARIATIONS} кредитов</span>
-        </button>
+          <button
+            className="btn ghost"
+            style={{ margin: 0, padding: '12px 8px', fontSize: 14, fontWeight: 600, background: 'rgba(255,255,255,0.08)', color: '#fff' }}
+            disabled={busy}
+            onClick={flow.share}
+          >
+            💬 В чат
+          </button>
+        </div>
 
         {/* §3.6: чипсы уточнения — ведут на вариацию с пометкой */}
-        <div className="refine-chips">
+        <div className="refine-chips" style={{ marginTop: 14 }}>
           {REFINE_CHIPS.map(chip => (
             <button
               key={chip.id}
@@ -360,12 +354,16 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
           ))}
         </div>
 
-        <button className="linkline" style={{ color: '#8AB4F8' }} onClick={() => navigate('/home')}>
-          Сделать ещё одну комнату
+        <button
+          className="linkline"
+          style={{ color: '#8AB4F8', marginTop: 12, padding: 8 }}
+          onClick={() => navigate('/home', { replace: true })}
+        >
+          Сделать ещё один дизайн
         </button>
 
         {error && <div className="err">{error}</div>}
-        {busy && <p className="tiny" style={{ textAlign: 'center', marginTop: 8 }}>Работаем…</p>}
+        {busy && <p className="tiny" style={{ textAlign: 'center', marginTop: 8, color: '#fff' }}>Работаем…</p>}
       </div>
 
       <div className="app__foot result-dark" style={{ background: '#0F1013' }}>

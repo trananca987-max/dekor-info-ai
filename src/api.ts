@@ -97,6 +97,11 @@ export const makeVariations = async (userId: number, generationId: number, extra
   return response.data
 }
 
+export const sendResultToChat = async (userId: number, generationId?: number | null, resultUrl?: string): Promise<{ ok: boolean; sent?: boolean; error?: string }> => {
+  const response = await api.post('/api/send-result-to-chat', { user_id: userId, generation_id: generationId, result_url: resultUrl })
+  return response.data
+}
+
 export const shareResult = async (userId: number, generationId: number): Promise<{
   ok: boolean; collage_url: string
 }> => {

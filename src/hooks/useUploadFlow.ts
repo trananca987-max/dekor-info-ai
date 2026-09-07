@@ -16,7 +16,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { User } from '../types'
 import {
   uploadPhoto, generateDesign, checkGenerationStatus,
-  enhanceHd, makeVariations, shareResult, logEvent, getUser,
+  enhanceHd, makeVariations, shareResult, logEvent, getUser, sendResultToChat,
 } from '../api'
 
 /** §3.6: вариант результата (первичная генерация или вариация) */
@@ -335,8 +335,37 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
   const download = useCallback(async () => {
     if (!resultUrl) return
     try {
+      window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
+      const fullUrl = resultUrl.startsWith('http') ? resultUrl : `${import.meta.env.VITE_API_URL || ''}${resultUrl}`
+
+      // 1. Если Telegram поддерживает downloadFile (Telegram 8.0+)
+      const tg = window.Telegram?.WebApp as any
+      if (tg?.downloadFile) {
+        tg.downloadFile({
+          url: fullUrl,
+          file_name: `dekorinfo_${generationId ?? 'design'}.jpg`
+        }, (accepted: boolean) => {
+          if (accepted) {
+            tg.showAlert?.('Загрузка началась')
+          }
+        })
+      }
+
+      // 2. Отправляем оригинал фото прямо в чат с ботом в Telegram
+      const sendRes = await sendResultToChat(user.telegram_id, generationId, resultUrl)
+      if (sendRes?.ok && tg?.showAlert) {
+        tg.showAlert('Фото сохранено и отправлено вам в личный чат с ботом!')
+      } else if (tg?.showPopup) {
+        tg.showPopup({
+          title: 'Готово!',
+          message: 'Фото готово. Вы также можете открыть его и сохранить в галерею.',
+          buttons: [{ type: 'ok', text: 'Понятно' }]
+        })
+      }
+
+      // 3. Фолбэк на прямое скачивание
       const a = document.createElement('a')
-      a.href = resultUrl.startsWith('http') ? resultUrl : `${import.meta.env.VITE_API_URL || ''}${resultUrl}`
+      a.href = fullUrl
       a.download = `dekorinfo_${generationId ?? 'design'}.jpg`
       a.target = '_blank'
       a.rel = 'noopener'
@@ -344,8 +373,9 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
       a.click()
       a.remove()
       logEvent(user.telegram_id, 'download', { generation_id: generationId })
-    } catch {
-      setError('Не удалось сохранить. Откройте изображение и удерживайте для сохранения')
+    } catch (err) {
+      console.error('Download error:', err)
+      setError('Нажмите на изображение и удерживайте, чтобы сохранить в галерею')
     }
   }, [resultUrl, generationId, user.telegram_id])
 

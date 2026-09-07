@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 from .database import get_db, init_db, SessionLocal, engine
 from .models import User, Generation, Payment, UserPhotoHash, AnalyticsEvent
 from .ai_generator import AIGenerator
-from .telegram_helper import check_subscription, send_message, create_invoice_link, bot
+from .telegram_helper import check_subscription, send_message, send_photo, create_invoice_link, bot
 from . import economy as eco
 from .catalog import JOBS, JOB_ORDER, STYLES, GARDEN_DIRECTIONS, display_name
 from .imghash import phash, is_same
@@ -889,6 +889,38 @@ async def get_user_generations(user_id: int, db: Session = Depends(get_db)):
         }
         out.append(d)
     return out
+
+
+@app.post("/api/send-result-to-chat")
+async def send_result_to_chat(request: dict, db: Session = Depends(get_db)):
+    """Отправляет готовый результат прямо в личный чат с ботом."""
+    user_id = request.get("user_id")
+    generation_id = request.get("generation_id")
+    result_url = request.get("result_url", "")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    # Ищем файл
+    filename = os.path.basename(result_url) if result_url else ""
+    file_path = os.path.join(RESULTS_DIR, filename) if filename else ""
+
+    if not os.path.exists(file_path) and generation_id:
+        gen = db.query(Generation).filter(Generation.id == generation_id).first()
+        if gen and gen.result_image_url:
+            file_path = os.path.join(RESULTS_DIR, os.path.basename(gen.result_image_url))
+
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "rb") as f:
+                photo_bytes = f.read()
+            caption = "🖼 Ваш готовый дизайн от Декор Инфо AI Designer!\nНажмите на фото и сохраните в галерею."
+            await send_photo(user_id=user_id, photo_bytes=photo_bytes, caption=caption)
+            return {"ok": True, "sent": True}
+        except Exception as e:
+            print(f"Error sending photo to chat: {e}")
+            return {"ok": False, "error": str(e)}
+
+    return {"ok": False, "error": "File not found"}
 
 
 @app.post("/api/share/{generation_id}")

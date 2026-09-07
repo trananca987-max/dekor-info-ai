@@ -47,6 +47,23 @@ async def send_message(user_id: int, text: str, parse_mode: str = None):
     except TelegramError as e:
         print(f"Error sending message: {e}")
 
+async def send_photo(user_id: int, photo_bytes: bytes, caption: str = ""):
+    """
+    Send photo directly to user chat via bot
+    """
+    if bot is None:
+        print(f"[local-mode] send_photo to {user_id}")
+        return
+    try:
+        import io
+        await bot.send_photo(
+            chat_id=user_id,
+            photo=io.BytesIO(photo_bytes),
+            caption=caption
+        )
+    except TelegramError as e:
+        print(f"Error sending photo: {e}")
+
 async def create_invoice_link(
     title: str,
     description: str,
