@@ -1,8 +1,9 @@
-// Этап A: пайплайн ассетов v2 (финальный).
+// Этап A/B: пайплайн ассетов v2 (FIX-1).
 // Читает assets.json (ручной источник правды), пишет ТОЛЬКО в public/assets/.
 // Не трогает: public/s/, src/manifest.json, catalog.ts, сам assets.json.
 // Падает (exit 1): файл слота отсутствует; пропорция кропа 01–05 расходится >1%;
-// вариант не влез в бюджет даже на качестве 60; у стиля after !== true.
+// вариант не влез в бюджет даже на качестве 60; у стиля after !== true;
+// extract вызывается для слота без tier: 1 или роли base_before.
 import sharp from 'sharp';
 import { mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -57,12 +58,6 @@ function clampCrop(c, w, h) {
   };
 }
 
-function parseRatio(str) {
-  if (str.includes('x')) { const [a, b] = str.split('x').map(Number); return a / b; }
-  const [a, b] = str.split(':').map(Number);
-  return a / b;
-}
-
 // --- нормализация 01–05: полная высота, ширина 0.8*h, центр по X, сдвиг вверх 0.35 ---
 async function computeBaseRects() {
   const rects = [];
@@ -86,19 +81,23 @@ async function computeBaseRects() {
 }
 
 // --- кодирование с бюджетным фолбэком: 80 → 75 → 70 → 65 → 60 ---
-async function processVariant(img, crop, longSide, budget) {
-  const w = Math.min(longSide, crop.width);
+async function processVariant(img, crop, longSide, budget, origW) {
+  const sourceWidth = crop ? crop.width : origW;
+  const w = Math.min(longSide, sourceWidth);
   for (let attempt = 0; attempt < 5; attempt++) {
     const q = Math.max(60, QUALITY - 5 * attempt);
-    const buf = await img.clone()
-      .extract({ left: crop.left, top: crop.top, width: crop.width, height: crop.height })
+    let pipeline = img.clone();
+    if (crop) {
+      pipeline = pipeline.extract({ left: crop.left, top: crop.top, width: crop.width, height: crop.height });
+    }
+    const buf = await pipeline
       .resize({ width: w, withoutEnlargement: true })
       .toColourspace('srgb')
       .webp({ quality: q, effort: EFFORT, smartSubsample: true, preset: 'photo' })
       .toBuffer();
     if (buf.length <= budget) return { buf, q };
   }
-  throw new Error(`Не влез в бюджет ${budget} байт даже на q60 (crop ${crop.width}x${crop.height})`);
+  throw new Error(`Не влез в бюджет ${budget} байт даже на q60 (crop: ${JSON.stringify(crop)})`);
 }
 
 // --- main ---
@@ -151,9 +150,12 @@ for (const entry of slotEntries) {
   }
 
   const { img, w, h } = await loadImage(srcFile);
-  let crop;
+  let crop = null;
 
-  if (base_slots.includes(entry.slot)) {
+  // Явное ветвление по признаку слота (FIX-1 §1)
+  const isAllowedCrop = entry.slot === '01' || entry.role === 'base_before' || entry.tier === 1 || isSpecial31;
+
+  if (base_slots.includes(entry.slot) && (entry.slot === '01' || entry.tier === 1)) {
     crop = baseRects[entry.slot];
   } else if (isSpecial31) {
     // og:image 1200×630, композиция смещена влево (правая треть чистая)
@@ -164,22 +166,19 @@ for (const entry of slotEntries) {
     const left = Math.round((w - tw) * 0.3);
     const top = Math.round((h - th) / 2);
     crop = clampCrop({ left, top, width: tw, height: th }, w, h);
-  } else if (entry.kind === 'util' && entry.ratio) {
-    // служебные: заданная пропорция, центр
-    const tr = parseRatio(entry.ratio);
-    let tw = Math.min(w, Math.round(h * tr));
-    let th = Math.round(tw / tr);
-    if (th > h) { th = h; tw = Math.round(th * tr); }
-    crop = clampCrop({ left: Math.round((w - tw) / 2), top: Math.round((h - th) / 2), width: tw, height: th }, w, h);
   } else {
-    // стили и задачи: 4:5, центр
-    const tw = Math.min(w, Math.round(h * 0.8));
-    const th = Math.round(tw / 0.8);
-    crop = clampCrop({ left: Math.round((w - tw) / 2), top: Math.round((h - th) / 2), width: tw, height: th }, w, h);
+    // Все остальные слоты (Tier 2 стили, задачи, служебные) проходят ТОЛЬКО resize без extract
+    crop = null;
   }
 
-  const card = await processVariant(img, crop, card_long_side, budgets.card);
-  const full = await processVariant(img, crop, full_long_side, budgets.full);
+  // Строгий assertion: падение сборки, если extract вызывается не для base/tier:1
+  if (crop !== null && !isAllowedCrop) {
+    console.error(`❌ Слот ${entry.slot} (${entry.title}): недопустимый вызов extract! Только слоты base_before и tier: 1 имеют право на extract.`);
+    process.exit(1);
+  }
+
+  const card = await processVariant(img, crop, card_long_side, budgets.card, w);
+  const full = await processVariant(img, crop, full_long_side, budgets.full, w);
   if (card.q < QUALITY || full.q < QUALITY) qualityDrops.push(`${entry.slot} (${entry.title}): card q${card.q}, full q${full.q}`);
 
   const base = entry.file.replace(/\.webp$/, '');
@@ -202,10 +201,16 @@ for (const entry of slotEntries) {
   };
 
   report.push({
-    slot: entry.slot, title: entry.title,
-    card: `${cm.width}x${cm.height} ${(card.buf.length / 1024).toFixed(0)}КБ q${card.q}`,
-    full: `${fm.width}x${fm.height} ${(full.buf.length / 1024).toFixed(0)}КБ q${full.q}`,
-    crop: `${crop.left},${crop.top} ${crop.width}x${crop.height}`,
+    slot: entry.slot,
+    title: entry.title,
+    tier: entry.tier || entry.kind,
+    crop: crop ? `${crop.left},${crop.top} ${crop.width}x${crop.height}` : 'no extract',
+    card_dims: `${cm.width}x${cm.height}`,
+    card_kb: (card.buf.length / 1024).toFixed(1) + ' КБ',
+    card_q: `q${card.q}`,
+    full_dims: `${fm.width}x${fm.height}`,
+    full_kb: (full.buf.length / 1024).toFixed(1) + ' КБ',
+    full_q: `q${full.q}`,
   });
   console.log(`✓ слот ${entry.slot} ${entry.title}`);
 }
@@ -213,7 +218,7 @@ for (const entry of slotEntries) {
 await writeFile(path.join(OUT_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
 await writeFile('src/manifest.json', JSON.stringify(manifest, null, 2));
 
-console.log('\n=== ОТЧЁТ ===');
+console.log('\n=== ТАБЛИЦА СЛОТОВ (FIX-1 §1) ===');
 console.table(report);
 console.log(`Готово: ${report.length} слотов (файлов: ${report.length * 2} + manifest.json)`);
 if (qualityDrops.length) {
