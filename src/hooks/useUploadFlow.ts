@@ -16,7 +16,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { User } from '../types'
 import {
   uploadPhoto, generateDesign, checkGenerationStatus,
-  enhanceHd, makeVariations, shareResult, logEvent,
+  enhanceHd, makeVariations, shareResult, logEvent, getUser,
 } from '../api'
 
 /** §3.6: вариант результата (первичная генерация или вариация) */
@@ -125,8 +125,13 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
           window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
         } else if (st.status === 'failed') {
           clearInterval(pollRef.current!)
-          // §7.6: техническая ошибка — баланс возвращен сервером
+          // §7.6: техническая ошибка — баланс возвращен сервером, синхронизируем юзера
           logEvent(user.telegram_id, 'generation_error', { task_id: taskId })
+          try {
+            const freshUser = await getUser(user.telegram_id)
+            onUserUpdate(freshUser)
+          } catch { /* игнорируем ошибку сети */ }
+
           let errMsg = st.error || 'Ошибка генерации. Дизайн возвращен на баланс'
           if (errMsg.includes('503') || errMsg.includes('Service Unavailable') || errMsg.includes('502') || errMsg.includes('504')) {
             errMsg = 'Сервер генерации временно перегружен. Попробуйте еще раз — баланс сохранен'
@@ -138,7 +143,7 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
         }
       } catch { /* сеть — ждём следующего тика */ }
     }, 3000)
-  }, [user.telegram_id])
+  }, [user.telegram_id, onUserUpdate, variants.length])
 
   // ===== Выбор файла. source — для аналитики §8 =====
   const pick = useCallback(async (f: File | null | undefined, source: 'camera' | 'gallery') => {
