@@ -86,10 +86,12 @@ class AnyModelGenerator:
             except urllib.error.HTTPError as e:
                 # Временные ошибки серверов AnyModel/Upstream
                 if e.code in (500, 502, 503, 504, 429) and attempt < max_retries:
-                    wait_sec = attempt * 2
+                    wait_sec = attempt * 3
                     print(f"AnyModel HTTP {e.code} on attempt {attempt}/{max_retries}. Retrying in {wait_sec}s...")
                     time.sleep(wait_sec)
                     continue
+                if e.code == 429:
+                    raise Exception("Сервер генерации сейчас сильно загружен. Подождите полминуты и попробуйте снова — баланс сохранён")
                 if e.code == 503:
                     raise Exception("Сервер генерации временно перегружен. Попробуйте ещё раз через минуту — баланс сохранён")
                 raise Exception(f"Ошибка сервиса генерации ({e.code}): {e.reason}")

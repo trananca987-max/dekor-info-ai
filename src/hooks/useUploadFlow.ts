@@ -133,8 +133,10 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
           } catch { /* игнорируем ошибку сети */ }
 
           let errMsg = st.error || 'Ошибка генерации. Дизайн возвращен на баланс'
-          if (errMsg.includes('503') || errMsg.includes('Service Unavailable') || errMsg.includes('502') || errMsg.includes('504')) {
-            errMsg = 'Сервер генерации временно перегружен. Попробуйте еще раз — баланс сохранен'
+          if (errMsg.includes('429') || errMsg.includes('Too Many Requests') || errMsg.includes('rate limit')) {
+            errMsg = 'Сервер временно занят большим количеством запросов. Попробуйте через полминуты — баланс сохранен'
+          } else if (errMsg.includes('503') || errMsg.includes('Service Unavailable') || errMsg.includes('502') || errMsg.includes('504')) {
+            errMsg = 'Сервер генерации временно перегружен. Попробуйте еще раз через минуту — баланс сохранен'
           }
           setError(errMsg)
           setBusy(false)
