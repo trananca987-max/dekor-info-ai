@@ -198,7 +198,7 @@ function App() {
           path="/result/:id"
           element={
             !user ? <Navigate to="/" replace /> :
-            <ResultScreen user={user} />
+            <ResultScreen user={user} onUserUpdate={setUser} />
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

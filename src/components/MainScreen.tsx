@@ -12,6 +12,7 @@ import { JOBS, STYLES_TIER1, BASE_BEFORE, type Style, type Job, getJob } from '.
 import { asset } from '../lib/assets'
 import { useBackButton } from '../hooks/useTelegramChrome'
 import PricingSheet from './PricingSheet'
+import BalanceRow from './BalanceRow'
 
 interface Props {
   user: User
@@ -25,6 +26,15 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
   const haptic = useCallback(() => window.Telegram?.WebApp?.HapticFeedback.impactOccurred('light'), [])
   const isReturning = (user.total_generations || 0) >= 1
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const fresh = await getUser(user.telegram_id)
+      onUserUpdate(fresh)
+    } catch {
+      // ignore
+    }
+  }, [user.telegram_id, onUserUpdate])
+
   // §4.3: главная — корневой экран, BackButton скрыт
   useBackButton({ onBack: () => navigate('/home'), force: false })
 
@@ -35,8 +45,6 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
   }, [])
 
   const openPricing = () => {
-    haptic()
-    logEvent(user.telegram_id, 'limit_banner_tap')
     navigate('/home?pricing=1')
   }
 
@@ -51,28 +59,18 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
           user={user}
           onClose={closePricing}
           onPaid={async () => {
-            try {
-              const fresh = await getUser(user.telegram_id)
-              onUserUpdate(fresh)
-            } catch {
-              onUserUpdate({ ...user })
-            }
+            await refreshUser()
             closePricing()
           }}
         />
       )}
 
-      {/* Хедер: статус лимита (§7.1) */}
-      <header className="home-v3__limit">
-        <button
-          className="home-v3__limit-btn"
-          onClick={openPricing}
-          aria-label="Статус лимита"
-        >
-          <strong>{user.balance_line}</strong>
-          <span className="home-v3__limit-chev" aria-hidden>›</span>
-        </button>
-      </header>
+      {/* FIX-1 §6: Нативная строка баланса (48 px) */}
+      <BalanceRow
+        user={user}
+        onTap={openPricing}
+        onRetry={refreshUser}
+      />
 
       {/* «Дизайн комнаты» (§2) — Уровень 1: Сетка 2×2 с сегмент-контролом «до / после» */}
       <section className="home-v3__section">

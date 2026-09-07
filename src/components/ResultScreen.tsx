@@ -2,20 +2,24 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { User, Generation } from '../types'
-import { getUserGenerations, logEvent, API_URL } from '../api'
+import { getUserGenerations, getUser, logEvent, API_URL } from '../api'
 import { useBackButton } from '../hooks/useTelegramChrome'
 import BeforeAfter from './BeforeAfter'
+import BalanceRow from './BalanceRow'
+import PricingSheet from './PricingSheet'
 
 interface Props {
   user: User
+  onUserUpdate?: (user: User) => void
 }
 
-export default function ResultScreen({ user }: Props) {
+export default function ResultScreen({ user, onUserUpdate }: Props) {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const genId = Number(id)
   const [work, setWork] = useState<Generation | null>(null)
   const [loading, setLoading] = useState(true)
+  const [pricingOpen, setPricingOpen] = useState(false)
 
   useBackButton({ onBack: () => navigate('/home'), force: true })
 
@@ -55,7 +59,8 @@ export default function ResultScreen({ user }: Props) {
   if (loading) {
     return (
       <div className="app__body result-v3">
-        <div className="skel" style={{ height: 360, borderRadius: 24, marginBottom: 16 }} />
+        <BalanceRow user={user} loading={true} onTap={() => {}} />
+        <div className="skel" style={{ height: 360, borderRadius: 24, marginTop: 16, marginBottom: 16 }} />
         <div className="skel" style={{ width: '60%', height: 20, margin: '0 auto 12px' }} />
       </div>
     )
@@ -64,6 +69,7 @@ export default function ResultScreen({ user }: Props) {
   if (!work) {
     return (
       <div className="app__body result-v3">
+        <BalanceRow user={user} onTap={() => setPricingOpen(true)} />
         <p style={{ textAlign: 'center', marginTop: 40 }}>Работа не найдена</p>
         <button
           className="btn-primary"
@@ -85,7 +91,31 @@ export default function ResultScreen({ user }: Props) {
 
   return (
     <div className="app__body result-v3">
-      <div className="result-v3__compare">
+      {pricingOpen && (
+        <PricingSheet
+          user={user}
+          onClose={() => setPricingOpen(false)}
+          onPaid={async () => {
+            if (onUserUpdate) {
+              try {
+                const fresh = await getUser(user.telegram_id)
+                onUserUpdate(fresh)
+              } catch {
+                onUserUpdate({ ...user })
+              }
+            }
+            setPricingOpen(false)
+          }}
+        />
+      )}
+
+      {/* §6: Дублирование строки баланса на экране /result */}
+      <BalanceRow
+        user={user}
+        onTap={() => setPricingOpen(true)}
+      />
+
+      <div className="result-v3__compare" style={{ marginTop: 14 }}>
         <BeforeAfter
           before={beforeFull}
           after={afterFull}
