@@ -76,6 +76,32 @@ class AnyModelGenerator:
             raise Exception("Empty b64_json in response")
         return base64.b64decode(b64)
 
+    def _request_with_retry(self, req: urllib.request.Request, timeout: int = 120, max_retries: int = 3) -> bytes:
+        """Выполняет HTTP запрос с повторными попытками при 503/502/504/429/таймаутах."""
+        import urllib.error
+        for attempt in range(1, max_retries + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    return r.read()
+            except urllib.error.HTTPError as e:
+                # Временные ошибки серверов AnyModel/Upstream
+                if e.code in (500, 502, 503, 504, 429) and attempt < max_retries:
+                    wait_sec = attempt * 2
+                    print(f"AnyModel HTTP {e.code} on attempt {attempt}/{max_retries}. Retrying in {wait_sec}s...")
+                    time.sleep(wait_sec)
+                    continue
+                if e.code == 503:
+                    raise Exception("Сервер генерации временно перегружен. Попробуйте ещё раз через минуту — баланс сохранён")
+                raise Exception(f"Ошибка сервиса генерации ({e.code}): {e.reason}")
+            except Exception as e:
+                if attempt < max_retries:
+                    wait_sec = attempt * 2
+                    print(f"AnyModel connection error on attempt {attempt}/{max_retries}: {e}. Retrying in {wait_sec}s...")
+                    time.sleep(wait_sec)
+                    continue
+                raise Exception("Не удалось связаться с сервером генерации. Проверьте интернет или повторите через минуту")
+        raise Exception("Сервер генерации временно недоступен. Попробуйте чуть позже — баланс сохранён")
+
     def _img2img_chat(self, image_bytes: bytes, prompt: str, extra: dict) -> bytes:
         """gemini-3.1-flash-image: референс через chat/completions."""
         b64 = base64.b64encode(image_bytes).decode()
@@ -93,8 +119,9 @@ class AnyModelGenerator:
             data=json.dumps(body).encode(), method="POST")
         for k, v in self._headers().items():
             req.add_header(k, v)
-        with urllib.request.urlopen(req, timeout=120) as r:
-            j = json.loads(r.read().decode())
+        
+        raw_resp = self._request_with_retry(req, timeout=120)
+        j = json.loads(raw_resp.decode("utf-8", errors="replace"))
         content = j["choices"][0]["message"].get("content", "")
         m = re.search(r"data:image/[a-z]+;base64,([A-Za-z0-9+/=]+)", content)
         if not m:
@@ -121,8 +148,8 @@ class AnyModelGenerator:
             data=json.dumps(body).encode(), method="POST")
         for k, v in self._headers().items():
             req.add_header(k, v)
-        with urllib.request.urlopen(req, timeout=150) as r:
-            raw = r.read()
+        
+        raw = self._request_with_retry(req, timeout=150)
         return self._parse_image_response(raw)
 
     def _apply_watermark(self, image_bytes: bytes) -> bytes:

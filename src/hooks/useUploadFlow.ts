@@ -125,11 +125,15 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
           window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
         } else if (st.status === 'failed') {
           clearInterval(pollRef.current!)
-          // §7.6: техническая ошибка — лимит НЕ списан сервером, просто возвращаемся
+          // §7.6: техническая ошибка — баланс возвращен сервером
           logEvent(user.telegram_id, 'generation_error', { task_id: taskId })
-          setError(st.error || 'Ошибка генерации. Кредиты вернутся автоматически')
+          let errMsg = st.error || 'Ошибка генерации. Дизайн возвращен на баланс'
+          if (errMsg.includes('503') || errMsg.includes('Service Unavailable') || errMsg.includes('502') || errMsg.includes('504')) {
+            errMsg = 'Сервер генерации временно перегружен. Попробуйте еще раз — баланс сохранен'
+          }
+          setError(errMsg)
           setBusy(false)
-          setStep('quality')
+          setStep('upload')
           window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error')
         }
       } catch { /* сеть — ждём следующего тика */ }
@@ -260,9 +264,8 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
       setGenerationId(Number.isNaN(gid) ? null : gid)
       setResultQuality(res.quality || 'medium')
       setChargeLabel(
-        res.charge === 'free_daily' ? 'Быстрый вариант · бесплатно'
-        : res.charge === 'quota' ? 'Из подписки'
-        : `−${res.cost} ${res.cost === 1 ? 'кредит' : 'кредитов'}`,
+        res.charge === 'free_daily' ? 'Бесплатный дизайн'
+        : `−${res.cost} дизайн`,
       )
       onUserUpdate({
         ...user,
@@ -271,12 +274,17 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
       } as User)
 
       pollTask(res.task_id)
-    } catch (e) {
-      // §7.6: ошибка до старта задачи — сервер не списал, возвращаем на quality
+    } catch (e: any) {
+      // §7.6: ошибка до старта задачи — сервер не списал, возвращаем на upload
       logEvent(user.telegram_id, 'generation_error', { job_id: jobId, stage: 'start' })
-      setError('Не удалось запустить генерацию. Проверьте интернет и попробуйте снова')
+      const msg = e?.message || ''
+      let userErr = 'Не удалось запустить генерацию. Проверьте интернет и попробуйте снова'
+      if (msg.includes('503') || msg.includes('Service Unavailable') || msg.includes('502') || msg.includes('504')) {
+        userErr = 'Сервер генерации временно перегружен. Попробуйте еще раз через минуту'
+      }
+      setError(userErr)
       setBusy(false)
-      setStep('quality')
+      setStep('upload')
     }
   }, [file, fileId, busy, quality, user, onUserUpdate, jobId, styleId, directionId, pollTask])
 
