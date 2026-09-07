@@ -41,8 +41,6 @@ export type Quality = 'low' | 'medium'
 export type ResultQuality = Quality | 'hd'
 
 const MAX_SIZE = 10 * 1024 * 1024
-const MIN_W = 1024
-const MIN_H = 768
 const OK_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 const GEN_STEPS = ['Читаю геометрию комнаты', 'Подбираю мебель', 'Рисую свет и тени']
@@ -164,21 +162,23 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
       return
     }
 
-    // §5: минимальное разрешение 1024×768 — проверяем через createImageBitmap
+    // §5: минимальное разрешение — проверяем с учетом ориентации (портрет/альбом)
     try {
       const bmp = await createImageBitmap(f)
       const w = bmp.width
       const h = bmp.height
       bmp.close()
-      if (w < MIN_W || h < MIN_H) {
-        setError(`Минимальное разрешение — ${MIN_W}×${MIN_H}. Снимите ближе или включите полную камеру`)
+      const maxDim = Math.max(w, h)
+      const minDim = Math.min(w, h)
+      if (maxDim < 640 || minDim < 480) {
+        setError('Слишком маленькое разрешение фото. Снимите ближе или включите полную камеру')
         logEvent(user.telegram_id, 'upload_error', {
           reason: 'resolution', w, h, job_id: jobId,
         })
         return
       }
     } catch {
-      // старый клиент без createImageBitmap — пропускаем проверку, сервер отклонит
+      // старый клиент без createImageBitmap — пропускаем проверку, сервер обработает
     }
 
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)

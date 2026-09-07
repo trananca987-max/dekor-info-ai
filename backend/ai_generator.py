@@ -276,11 +276,12 @@ class AnyModelGenerator:
 
         with open(image_path, "rb") as f:
             img_bytes = f.read()
-        # провайдер отклоняет крупные референсы — ресайз до <=1024px
+        # провайдер отклоняет крупные референсы — ресайз до <=1024px с учетом EXIF ориентации
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             import io
             im = Image.open(io.BytesIO(img_bytes))
+            im = ImageOps.exif_transpose(im)
             if max(im.size) > 1024:
                 im.thumbnail((1024, 1024))
             buf = io.BytesIO()
@@ -329,8 +330,10 @@ class AIGenerator(AnyModelGenerator):
 
     def optimize_image(self, image_path: str, max_size: int = 1536) -> str:
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             img = Image.open(image_path)
+            # Автоматический поворот по EXIF тегу ориентации камеры
+            img = ImageOps.exif_transpose(img)
             if max(img.size) > max_size:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             if img.mode != "RGB":
