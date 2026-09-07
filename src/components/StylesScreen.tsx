@@ -1,7 +1,8 @@
-// SPEC §3.2 (Этап B - PATCH v5): экран всех стилей /styles (Уровень 2).
+// SPEC §3.2 (Этап B - FIX-1): экран всех стилей /styles (Уровень 2).
 // 16 стилей в строгом порядке выдачи манифеста (1. Максимализм ... 16. Ваби-саби).
 // При открытии выбор пустой, CTA неактивна «Продолжить»; после выбора — «Продолжить · {Название}».
 // Индикация выбора: обводка 2px accent_text_color вокруг всего кадра + галочка в круге в углу кадра.
+// Оверлеи tier 2 не используются — все 16 карточек с белой плашкой под кадром.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '../types'
@@ -49,17 +50,11 @@ export default function StylesScreen({ user }: { user: User }) {
       <div className="styles-v3__grid">
         {STYLES_TIER2.map((s) => {
           const isSelected = s.id === selectedId
-          const overlayClass =
-            s.overlay === 'gradient'
-              ? 'styles-v3__card--gradient'
-              : s.overlay === 'frame'
-              ? 'styles-v3__card--frame'
-              : ''
 
           return (
             <div
               key={s.id}
-              className={`styles-v3__card ${isSelected ? 'styles-v3__card--selected' : ''} ${overlayClass}`}
+              className={`styles-v3__card ${isSelected ? 'styles-v3__card--selected' : ''}`}
               onClick={() => handleSelect(s.id)}
               role="button"
               tabIndex={0}

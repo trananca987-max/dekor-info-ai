@@ -1165,50 +1165,7 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
 .styles-v3__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.styles-v3__card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  padding: 0;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: var(--r-card);
-  overflow: hidden;              /* LOW-8: белый блок не лезет на углы */
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  aspect-ratio: 3/4;             /* HIGH-3 */
-}
-.styles-v3__card--selected {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
-}
-.styles-v3__card-img {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--surface-2);
-}
-.styles-v3__card-img img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.styles-v3__card-title {
-  display: block;
-  padding: 8px 10px 9px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.25;
+  gap: 12px 10px;
 }
 
 /* =========================================================================
@@ -1296,12 +1253,10 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
 }
 
 /* Оверлеи карточек стилей: gradient, frame */
-.style-card--gradient .job-card__plate,
-.styles-v3__card--gradient {
+.style-card--gradient .job-card__plate {
   background: linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.35) 60%, transparent 100%) !important;
 }
-.style-card--frame,
-.styles-v3__card--frame {
+.style-card--frame {
   box-shadow: inset 0 0 0 2px var(--primary), var(--shadow-card) !important;
 }
 
@@ -1685,18 +1640,30 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   padding: 0;
   cursor: pointer;
   text-align: left;
+  width: 100%;
+  min-width: 0;
 }
 
 .styles-v3__card-img-wrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 4/5;
+  aspect-ratio: 4/3;
   border-radius: var(--r-card, 16px);
   overflow: hidden;
   background: var(--surface-2);
   border: 2px solid transparent;
   transition: border-color 0.15s ease;
   box-sizing: border-box;
+}
+
+.styles-v3__card-img-wrap img,
+.styles-v3__card-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .styles-v3__card--selected .styles-v3__card-img-wrap {
@@ -1722,11 +1689,18 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
 }
 
 .styles-v3__card-title {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   padding: 6px 4px 0;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
   line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .styles-v3__cta-bar {
