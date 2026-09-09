@@ -77,12 +77,25 @@ class AnyModelGenerator:
         return base64.b64decode(b64)
 
     def _request_with_retry(self, req: urllib.request.Request, timeout: int = 120, max_retries: int = 3) -> bytes:
-        """Выполняет HTTP запрос с повторными попытками при 503/502/504/429/таймаутах."""
+        """Выполняет HTTP запрос с повторными попытками при 503/502/504/429/таймаутах.
+        
+        БАГ-1 митигация: логирует предупреждение, если баланс AnyModel низкий.
+        """
         import urllib.error
         for attempt in range(1, max_retries + 1):
             try:
                 with urllib.request.urlopen(req, timeout=timeout) as r:
-                    return r.read()
+                    raw = r.read()
+                    # Алерт баланса (БАГ-1): AnyModel не отдаёт usage для images API,
+                    # но может вернуть X-Remaining-Credits или 402 при исчерпании.
+                    # Логируем предупреждение для мониторинга.
+                    try:
+                        remaining = r.headers.get('X-Remaining-Credits') or r.headers.get('X-Remaining-Balance')
+                        if remaining and float(remaining) < 5.0:
+                            print(f"⚠️ ANYMODEL LOW BALANCE: {remaining} (threshold: $5)")
+                    except Exception:
+                        pass
+                    return raw
             except urllib.error.HTTPError as e:
                 # Временные ошибки серверов AnyModel/Upstream
                 if e.code in (500, 502, 503, 504, 429) and attempt < max_retries:
@@ -297,6 +310,12 @@ class AnyModelGenerator:
         elif mode == "furnish":
             prompt = (f"Furnish this empty room in this style: {style_prompt}. "
                       "Photorealistic interior design.")
+        elif mode == "enhance":
+            # HD-улучшение (БАГ-2 фикс): промпт уже собран в /api/enhance-hd
+            # («Enhance this interior design photo: increase sharpness… keep
+            # everything exactly the same»). Не добавляем «keep room structure» —
+            # это конфликтует с «keep everything exactly the same».
+            prompt = style_prompt
         elif mode == "refine_text":
             # Текстовая правка: style_prompt уже содержит инструкцию юзера +
             # фиксацию «всё остальное без изменений» (собрано в /api/refine-text).

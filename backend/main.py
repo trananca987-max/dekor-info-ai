@@ -483,16 +483,22 @@ def _charge(user, quality: str, db) -> tuple:
     """Списывает 1 дизайн за генерацию (§5). Возвращает (wallet, engine_tier, cost).
 
     Сначала списывает бесплатные (credits_free_daily), затем купленные (credits_paid).
+    БАГ-1 фикс: engine_tier определяется качеством, а не хардкодом «premium»:
+      low    → pro          (gemini-3.1-flash-image, reasoning=low)
+      medium → premium       (gemini-3.1-flash-image, reasoning=medium)
+      hd     → premium_pro   (cx/gpt-image-2, quality=low) — для /api/enhance-hd
     """
     eco.ensure_daily_wallet(user)
 
+    tier = {"low": "pro", "medium": "premium", "hd": "premium_pro"}.get(quality, "premium")
+
     if (user.credits_free_daily or 0) >= eco.COST_DESIGN:
         user.credits_free_daily -= eco.COST_DESIGN
-        return "free_daily", "premium", eco.COST_DESIGN
+        return "free_daily", tier, eco.COST_DESIGN
 
     if (user.credits_paid or 0) >= eco.COST_DESIGN:
         user.credits_paid -= eco.COST_DESIGN
-        return "paid", "premium", eco.COST_DESIGN
+        return "paid", tier, eco.COST_DESIGN
 
     raise HTTPException(status_code=402, detail="Дизайны закончились. Пополните баланс")
 
