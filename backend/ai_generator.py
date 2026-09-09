@@ -181,9 +181,14 @@ class AnyModelGenerator:
             font = None
             try:
                 from PIL import ImageFont
+                # БАГ-4 фикс: используем встроенный шрифт для совместимости с Linux-контейнером
+                font_path = os.path.join(os.path.dirname(__file__), "assets", "OpenSans-Regular.ttf")
                 for size in (max(16, w // 22), max(14, w // 26), 14):
                     try:
-                        font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", size)
+                        if os.path.exists(font_path):
+                            font = ImageFont.truetype(font_path, size)
+                        else:
+                            font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", size)
                         break
                     except Exception:
                         font = ImageFont.load_default()

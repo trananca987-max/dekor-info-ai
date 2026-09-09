@@ -23,10 +23,29 @@ from dotenv import load_dotenv
 from .database import get_db, init_db, SessionLocal, engine
 from .models import User, Generation, Payment, UserPhotoHash, AnalyticsEvent
 from .ai_generator import AIGenerator
-from .telegram_helper import check_subscription, send_message, send_photo, create_invoice_link, bot
+from .telegram_helper import check_subscription, send_message, send_photo, create_invoice_link, bot, verify_telegram_init_data
 from . import economy as eco
 from .catalog import JOBS, JOB_ORDER, STYLES, GARDEN_DIRECTIONS, display_name
 from .imghash import phash, is_same
+
+def require_auth(request, expected_user_id: int):
+    """БАГ-5 фикс: проверяет initData для защиты от подмены user_id."""
+    init_data = request.headers.get("X-Telegram-Init-Data")
+    if not init_data:
+        # Для локального тестирования разрешаем пустой заголовок, если нет токена
+        if os.getenv("TELEGRAM_BOT_TOKEN"):
+            raise HTTPException(401, "Отсутствует подпись Telegram")
+        return
+    try:
+        data = verify_telegram_init_data(init_data)
+        user_info = data.get("user", {})
+        tg_id = user_info.get("id")
+        if tg_id and int(tg_id) != int(expected_user_id):
+            raise HTTPException(403, "Отказано в доступе: подмена ID пользователя")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(401, f"Ошибка авторизации: {e}")
 
 load_dotenv()
 
@@ -512,9 +531,12 @@ def _refund(user, wallet: str, cost: int, quality: str):
 
 
 async def process_generation(task_id: str, file_path: str, style_prompt: str,
-                             engine_tier: str, generation_id: int, db_session,
+                             engine_tier: str, generation_id: int,
                              mode: str = "style"):
-    """Background: генерация через anymodel.org."""
+    """Background: генерация через anymodel.org.
+    
+    БАГ-3 фикс: использует собственную сессию БД вместо request-scoped `db_session`.
+    """
     try:
         generation_tasks[task_id] = {"status": "processing", "progress": 0}
         import asyncio
@@ -534,31 +556,32 @@ async def process_generation(task_id: str, file_path: str, style_prompt: str,
         except Exception as e:
             print(f"Preview generation failed: {e}")
 
-        generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
-        if generation:
-            generation.result_image_url = result_url
-            generation.preview_url = preview_url
-            generation.processing_time = processing_time
-            generation.status = "completed"
-            db_session.commit()
-            # Реферальный бонус: +10 кредитов пригласившему после ПЕРВОЙ генерации друга
-            try:
-                gen_user = db_session.query(User).filter(
-                    User.telegram_id == generation.user_id).first()
-                if gen_user and gen_user.referred_by:
-                    first_gen_count = db_session.query(Generation).filter(
-                        Generation.user_id == gen_user.telegram_id,
-                        Generation.status == "completed").count()
-                    if first_gen_count == 1:
-                        referrer = db_session.query(User).filter(
-                            User.telegram_id == gen_user.referred_by).first()
-                        if referrer:
-                            referrer.credits_paid = (referrer.credits_paid or 0) + \
-                                eco.BONUS_REWARDS["invite_friend"]
-                            db_session.commit()
-                            print(f"🎁 Рефбонус +{eco.BONUS_REWARDS['invite_friend']} → {referrer.telegram_id}")
-            except Exception as e:
-                print(f"Referral bonus error: {e}")
+        with SessionLocal() as db_session:
+            generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
+            if generation:
+                generation.result_image_url = result_url
+                generation.preview_url = preview_url
+                generation.processing_time = processing_time
+                generation.status = "completed"
+                db_session.commit()
+                # Реферальный бонус: +10 кредитов пригласившему после ПЕРВОЙ генерации друга
+                try:
+                    gen_user = db_session.query(User).filter(
+                        User.telegram_id == generation.user_id).first()
+                    if gen_user and gen_user.referred_by:
+                        first_gen_count = db_session.query(Generation).filter(
+                            Generation.user_id == gen_user.telegram_id,
+                            Generation.status == "completed").count()
+                        if first_gen_count == 1:
+                            referrer = db_session.query(User).filter(
+                                User.telegram_id == gen_user.referred_by).first()
+                            if referrer:
+                                referrer.credits_paid = (referrer.credits_paid or 0) + \
+                                    eco.BONUS_REWARDS["invite_friend"]
+                                db_session.commit()
+                                print(f"🎁 Рефбонус +{eco.BONUS_REWARDS['invite_friend']} → {referrer.telegram_id}")
+                except Exception as e:
+                    print(f"Referral bonus error: {e}")
 
         generation_tasks[task_id] = {
             "status": "completed", "result_url": result_url, "preview_url": preview_url}
@@ -566,16 +589,17 @@ async def process_generation(task_id: str, file_path: str, style_prompt: str,
     except Exception as e:
         print(f"Generation error: {str(e)}")
         generation_tasks[task_id] = {"status": "failed", "error": str(e)}
-        generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
-        if generation:
-            generation.status = "failed"
-            generation.error_message = str(e)
-            user = db_session.query(User).filter(
-                User.telegram_id == generation.user_id).first()
-            if user:
-                _refund(user, generation.wallet or "paid",
-                        generation.cost_stars or 0, generation.quality or "medium")
-            db_session.commit()
+        with SessionLocal() as db_session:
+            generation = db_session.query(Generation).filter(Generation.id == generation_id).first()
+            if generation:
+                generation.status = "failed"
+                generation.error_message = str(e)
+                user = db_session.query(User).filter(
+                    User.telegram_id == generation.user_id).first()
+                if user:
+                    _refund(user, generation.wallet or "paid",
+                            generation.cost_stars or 0, generation.quality or "medium")
+                db_session.commit()
 
 
 # === GENERATION (§2, §5, §7) ===
@@ -595,7 +619,7 @@ def _build_prompt(job_id: str, style_id: str) -> str:
 
 
 @app.post("/api/generate")
-async def generate_design(request: dict, background_tasks: BackgroundTasks,
+async def generate_design(req: Request, request: dict, background_tasks: BackgroundTasks,
                           db: Session = Depends(get_db)):
     """Запуск генерации. v2.2: стиль (room_design) или задача (5).
 
@@ -607,6 +631,8 @@ async def generate_design(request: dict, background_tasks: BackgroundTasks,
     """
     user_id = request.get("user_id")
     file_id = request.get("file_id")
+    if user_id:
+        require_auth(req, int(user_id))
     style_id = request.get("style_id", "modern")
     job_id = request.get("job_id", "room_design")
     quality = request.get("quality", "medium")
@@ -695,7 +721,7 @@ async def generate_design(request: dict, background_tasks: BackgroundTasks,
     task_id = f"{user_id}_{generation.id}"
     background_tasks.add_task(
         process_generation, task_id, file_path, prompt, engine_tier,
-        generation.id, db, "style")
+        generation.id, "style")
 
     eco.ensure_daily_wallet(user)
     db.commit()
@@ -717,10 +743,12 @@ async def generate_design(request: dict, background_tasks: BackgroundTasks,
 
 
 @app.post("/api/enhance-hd/{generation_id}")
-async def enhance_hd(generation_id: int, request: dict,
+async def enhance_hd(req: Request, generation_id: int, request: dict,
                      background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """«Сделать в высоком качестве» — 15 кредитов (§7.4, §8)."""
     user_id = request.get("user_id")
+    if user_id:
+        require_auth(req, int(user_id))
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -763,16 +791,18 @@ async def enhance_hd(generation_id: int, request: dict,
         "Enhance this interior design photo: increase sharpness and micro-detail, "
         "refine textures and lighting, keep composition, colors and all objects exactly "
         "the same. Photorealistic high definition.",
-        engine_tier, generation.id, db, "enhance")
+        engine_tier, generation.id, "enhance")
     return {"task_id": task_id, "cost": cost,
             "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
 
 
 @app.post("/api/variations/{generation_id}")
-async def make_variations(generation_id: int, request: dict,
+async def make_variations(req: Request, generation_id: int, request: dict,
                           background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """«Другой вариант» — пакет из 3 Medium, 10 кредитов (§5, §7.4)."""
     user_id = request.get("user_id")
+    if user_id:
+        require_auth(req, int(user_id))
     user = db.query(User).filter(User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -854,14 +884,14 @@ async def make_variations(generation_id: int, request: dict,
         background_tasks.add_task(
             process_generation, task_id, original_path,
             f"{style_prompt}{seed_hint}",
-            "premium", generation.id, db, "style")
+            "premium", generation.id, "style")
         tasks.append(task_id)
     return {"task_ids": tasks, "cost": eco.COST_VARIATIONS,
             "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
 
 
 @app.post("/api/refine-text/{generation_id}")
-async def refine_text(generation_id: int, request: dict,
+async def refine_text(req: Request, generation_id: int, request: dict,
                       background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Текстовая правка результата: 1 генерация за 1 дизайн (COST_DESIGN).
 
@@ -926,7 +956,7 @@ async def refine_text(generation_id: int, request: dict,
     task_id = f"{user_id}_{generation.id}"
     background_tasks.add_task(
         process_generation, task_id, ref_path,
-        prompt, engine_tier, generation.id, db, "refine_text")
+        prompt, engine_tier, generation.id, "refine_text")
 
     try:
         db.add(AnalyticsEvent(user_id=user_id, event="refine_text",

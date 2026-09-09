@@ -9,6 +9,14 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// БАГ-5 фикс: передаём initData во всех запросах
+api.interceptors.request.use((config) => {
+  if (window.Telegram?.WebApp?.initData) {
+    config.headers['X-Telegram-Init-Data'] = window.Telegram.WebApp.initData
+  }
+  return config
+})
+
 // === Аналитика: fire-and-forget, не блокирует UI ===
 export const logEvent = (userId: number | undefined, event: string, payload?: object) => {
   api.post('/api/event', { user_id: userId, event, payload }).catch(() => {})

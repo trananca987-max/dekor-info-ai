@@ -16,6 +16,57 @@ else:
     bot = None
     print("⚠️ TELEGRAM_BOT_TOKEN не задан — Telegram-функции отключены (локальный режим)")
 
+import urllib.parse
+import hmac
+import hashlib
+import json
+
+def verify_telegram_init_data(init_data: str) -> dict:
+    """
+    Проверяет подпись initData от Telegram Mini App.
+    Возвращает словарь (распарсенный), если подпись верна.
+    Иначе выбрасывает ValueError.
+    """
+    if not BOT_TOKEN:
+        # Для локального тестирования без токена
+        try:
+            parsed = urllib.parse.parse_qsl(init_data)
+            data_dict = dict(parsed)
+            if "user" in data_dict:
+                data_dict["user"] = json.loads(data_dict["user"])
+            return data_dict
+        except Exception:
+            raise ValueError("Local mode parsing failed")
+
+    parsed = urllib.parse.parse_qsl(init_data)
+    data_dict = dict(parsed)
+    
+    if "hash" not in data_dict:
+        raise ValueError("No hash in init_data")
+        
+    received_hash = data_dict.pop("hash")
+    
+    # Сортируем пары k=v алфавитно и объединяем через \n
+    data_check_string = "\n".join(
+        f"{k}={v}" for k, v in sorted(data_dict.items())
+    )
+    
+    # HMAC-SHA-256 ключ от WebAppData
+    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    
+    # Хэш от data_check_string
+    calculated_hash = hmac.new(
+        secret_key, data_check_string.encode(), hashlib.sha256
+    ).hexdigest()
+    
+    if calculated_hash != received_hash:
+        raise ValueError("Invalid init_data signature")
+        
+    if "user" in data_dict:
+        data_dict["user"] = json.loads(data_dict["user"])
+        
+    return data_dict
+
 async def check_subscription(user_id: int) -> bool:
     """
     Check if user is subscribed to the channel
