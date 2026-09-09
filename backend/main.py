@@ -854,6 +854,91 @@ async def make_variations(generation_id: int, request: dict,
             "credits_left": user.credits_paid or 0, "stars_left": user.credits_paid or 0}
 
 
+@app.post("/api/refine-text/{generation_id}")
+async def refine_text(generation_id: int, request: dict,
+                      background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Текстовая правка результата: 1 генерация за 1 дизайн (COST_DESIGN).
+
+    Референс = результат исходной генерации (правка поверх готового дизайна,
+    не поверх фото пользователя). Промпт = текст юзера + фиксация «всё остальное
+    без изменений». Движок premium (gemini-3.1-flash-image medium) — хорошо
+    понимает инструкции «вернуть/добавить/убрать».
+    """
+    user_id = request.get("user_id")
+    text = (request.get("text") or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    if not text:
+        raise HTTPException(status_code=400, detail="Опишите, что нужно изменить")
+    if len(text) > 500:
+        raise HTTPException(status_code=400, detail="Слишком длинный текст (макс. 500 символов)")
+
+    user = db.query(User).filter(User.telegram_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    src = db.query(Generation).filter(
+        Generation.id == generation_id, Generation.user_id == user_id,
+        Generation.status == "completed").first()
+    if not src or not src.result_image_url:
+        raise HTTPException(status_code=404, detail="Исходная генерация не найдена")
+
+    # Референс = файл результата исходной генерации
+    ref_filename = os.path.basename(src.result_image_url)
+    ref_path = os.path.join(RESULTS_DIR, ref_filename)
+    if not os.path.exists(ref_path):
+        raise HTTPException(status_code=404, detail="Файл результата не найден")
+
+    # Списание 1 дизайна (free_daily → paid, как в обычной генерации)
+    wallet, engine_tier, cost = _charge(user, "medium", db)
+    db.commit()
+
+    prompt = (f"{text}. Keep everything else exactly the same: room structure, "
+              f"lighting, colors, windows, doors, all existing furniture and decor. "
+              f"Only modify what is described above. Do not rearrange the room. "
+              f"Photorealistic interior design.")
+
+    generation = Generation(
+        user_id=user_id,
+        original_image_url=src.result_image_url,  # референс = результат
+        result_image_url=None,
+        preview_url=None,
+        style_id=src.style_id,
+        category=src.category,
+        cost_stars=cost,
+        wallet=wallet,
+        kind="refine_text",
+        quality="medium",
+        job_id=src.job_id,
+        parent_id=src.id,
+        status="pending",
+    )
+    db.add(generation)
+    db.commit()
+    db.refresh(generation)
+
+    task_id = f"{user_id}_{generation.id}"
+    background_tasks.add_task(
+        process_generation, task_id, ref_path,
+        prompt, engine_tier, generation.id, db, "refine_text")
+
+    try:
+        db.add(AnalyticsEvent(user_id=user_id, event="refine_text",
+                              payload=json.dumps({"text": text[:500],
+                                                  "parent_generation_id": generation_id,
+                                                  "new_generation_id": generation.id},
+                                                 ensure_ascii=False)[:2000]))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return {"task_id": task_id, "cost": cost,
+            "credits_paid_left": user.credits_paid or 0,
+            "credits_free_daily_left": user.credits_free_daily or 0,
+            "credits_left": user.credits_paid or 0,
+            "stars_left": user.credits_paid or 0}
+
+
 @app.get("/api/generate/{task_id}")
 async def get_generation_status(task_id: str):
     if task_id not in generation_tasks:

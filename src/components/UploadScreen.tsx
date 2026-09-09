@@ -110,6 +110,7 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
   const { step, setStep, previewUrl, quality, busy, error } = flow
   const [hintsOpen, setHintsOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const [refineText, setRefineText] = useState('')
 
   const hints = SHOOT_HINTS[jobId] || DEFAULT_HINTS
   const title = TITLES[jobId] || 'Ваша комната'
@@ -352,6 +353,51 @@ export default function UploadScreen({ user, onUserUpdate }: Props) {
               {chip.label}
             </button>
           ))}
+        </div>
+
+        {/* Текстовая правка результата (1 дизайн): опишите, что изменить */}
+        <div style={{ marginTop: 14, padding: 12, background: 'rgba(255,255,255,0.05)', borderRadius: 12 }}>
+          <label htmlFor="refine-text" style={{ display: 'block', color: '#fff', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+            ✏️ Точная правка текстом
+          </label>
+          <textarea
+            id="refine-text"
+            value={refineText}
+            onChange={(e) => setRefineText(e.target.value.slice(0, 500))}
+            disabled={busy}
+            rows={3}
+            placeholder="Например: вернуть предыдущий пол, а в нише сделать закрытый книжный шкаф из дерева"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 8,
+              color: '#fff',
+              fontSize: 14,
+              padding: '10px 12px',
+              resize: 'none',
+              fontFamily: 'inherit',
+              lineHeight: 1.4,
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
+              {refineText.length}/500 · −1 дизайн
+            </span>
+            <button
+              className="btn"
+              style={{ margin: 0, padding: '8px 16px', fontSize: 13, fontWeight: 600 }}
+              disabled={busy || refineText.trim().length < 3}
+              onClick={() => {
+                const t = refineText
+                setRefineText('')
+                void flow.applyRefineText(t)
+              }}
+            >
+              {busy ? 'Работаю…' : 'Применить'}
+            </button>
+          </div>
         </div>
 
         <button

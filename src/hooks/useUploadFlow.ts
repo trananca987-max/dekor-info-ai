@@ -17,6 +17,7 @@ import type { User } from '../types'
 import {
   uploadPhoto, generateDesign, checkGenerationStatus,
   enhanceHd, makeVariations, shareResult, logEvent, getUser, sendResultToChat,
+  refineText,
 } from '../api'
 
 /** §3.6: вариант результата (первичная генерация или вариация) */
@@ -331,6 +332,45 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
     void doUpsell('variations')
   }, [busy, generationId, user.telegram_id, doUpsell])
 
+  // ===== Текстовая правка результата (1 генерация за 1 дизайн) =====
+  // Референс = текущий результат; промпт = текст юзера + фиксация остального.
+  const applyRefineText = useCallback(async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || busy || !generationId) return
+    setBusy(true)
+    setError('')
+    setProgress(8)
+    setStep('processing')
+    try {
+      const r = await refineText(user.telegram_id, generationId, trimmed)
+      onUserUpdate({
+        ...user,
+        credits_paid: r.credits_paid_left,
+        credits_free_daily: r.credits_free_daily_left,
+      } as User)
+      logEvent(user.telegram_id, 'refine_tap', {
+        kind: 'text', text: trimmed.slice(0, 120), generation_id: generationId,
+      })
+      pollTask(r.task_id)
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || ''
+      let userErr = 'Не удалось запустить правку. Попробуйте позже'
+      if (msg.includes('402') || msg.includes('закончились') || msg.includes('кредитов')) {
+        userErr = msg
+      } else if (msg.includes('Слишком длинный')) {
+        userErr = msg
+      }
+      setError(userErr)
+      setBusy(false)
+      setStep('result')
+      // баланс мог не измениться при ошибке до списания — синхронизируем на всякий
+      try {
+        const freshUser = await getUser(user.telegram_id)
+        onUserUpdate(freshUser)
+      } catch { /* сеть */ }
+    }
+  }, [busy, generationId, user, onUserUpdate, pollTask])
+
   // ===== Скачать / поделиться =====
   const download = useCallback(async () => {
     if (!resultUrl) return
@@ -409,6 +449,6 @@ export function useUploadFlow({ user, onUserUpdate, jobId, styleId, directionId 
     progress, genStepIdx, genSteps: GEN_STEPS,
     busy, error, setError,
     // действия
-    pick, reset, start, doUpsell, applyRefine, gotoVariant, download, share,
+    pick, reset, start, doUpsell, applyRefine, applyRefineText, gotoVariant, download, share,
   }
 }

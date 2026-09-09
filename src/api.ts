@@ -97,6 +97,15 @@ export const makeVariations = async (userId: number, generationId: number, extra
   return response.data
 }
 
+export const refineText = async (userId: number, generationId: number, text: string): Promise<{
+  task_id: string; cost: number;
+  credits_paid_left: number; credits_free_daily_left: number;
+  credits_left: number; stars_left: number
+}> => {
+  const response = await api.post(`/api/refine-text/${generationId}`, { user_id: userId, text })
+  return response.data
+}
+
 export const sendResultToChat = async (userId: number, generationId?: number | null, resultUrl?: string): Promise<{ ok: boolean; sent?: boolean; error?: string }> => {
   const response = await api.post('/api/send-result-to-chat', { user_id: userId, generation_id: generationId, result_url: resultUrl })
   return response.data

@@ -297,6 +297,11 @@ class AnyModelGenerator:
         elif mode == "furnish":
             prompt = (f"Furnish this empty room in this style: {style_prompt}. "
                       "Photorealistic interior design.")
+        elif mode == "refine_text":
+            # Текстовая правка: style_prompt уже содержит инструкцию юзера +
+            # фиксацию «всё остальное без изменений» (собрано в /api/refine-text).
+            # Ничего не добавляем — передаём как есть.
+            prompt = style_prompt
         else:  # style
             prompt = f"{style_prompt}. Keep the room structure, windows and layout unchanged."
 
