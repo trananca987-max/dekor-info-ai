@@ -3,7 +3,8 @@
   "src_dirs": [
     "/Users/andrey/Downloads/Interior_Part_01",
     "/Users/andrey/Downloads/Interior_Part_02",
-    "/Users/andrey/Downloads/Новая папка 7"
+    "/Users/andrey/Downloads/Новая папка 7",
+    "/Users/andrey/Downloads/Balcony_Renovation_Before_After"
   ],
   "out_dir": "public/assets",
   "budgets": { "card": 153600, "full": 409600 },
@@ -53,6 +54,11 @@
     "29": { "kind": "util", "src": "wnzn4grp", "file": "29_empty_state.webp", "title": "Ваших работ пока нет", "where": "«Ваши работы» пусто", "ratio": "4:3" },
     "30": { "kind": "util", "src": "qhzndp3E", "file": "30_limit.webp", "title": "Лимит исчерпан", "where": "лимит исчерпан", "ratio": "4:3" },
     "31": { "kind": "util", "src": "xEdOih93", "file": "31_social_preview.webp", "title": "Соцпревью", "where": "og:image", "ratio": "1200x630", "crop_from": "03", "compose": "left_bias" },
-    "32": { "kind": "util", "src": "32_Hyperrealistic_interior_photograph_used_as_backgro-1788621910492.png", "file": "32_progress_bg.webp", "title": "Фон генерации", "where": "фон экрана генерации", "ratio": "2:3" }
+    "32": { "kind": "util", "src": "32_Hyperrealistic_interior_photograph_used_as_backgro-1788621910492.png", "file": "32_progress_bg.webp", "title": "Фон генерации", "where": "фон экрана генерации", "ratio": "2:3" },
+
+    "36": { "kind": "task", "src": "01_Before_Tipichnyi_Rossiisky_Balcon_Zakhlamlennyi.jpg", "file": "36_balcony_before.webp", "id": "balcony", "title": "Балкон и лоджия", "subtitle": "Уютный уголок, сад или офис", "role": "before", "compare": "static_seam", "seam": 0.50, "seam_verified": true, "order": 6 },
+    "37": { "kind": "task", "src": "02_After_Cozy_Uyutnyi_Skandinavsky_Minimalizm.jpg", "file": "37_balcony_after_cozy.webp", "id": "balcony", "title": "Балкон и лоджия", "subtitle": "Уютный уголок, сад или офис", "role": "after", "compare": "static_seam", "seam": 0.50, "seam_verified": true, "order": 6 },
+    "38": { "kind": "task", "src": "03_After_Green_Zelenyi_Oazis_Gorodskoi_Sad.jpg", "file": "38_balcony_after_green.webp", "id": "balcony", "title": "Балкон и лоджия", "subtitle": "Уютный уголок, сад или офис", "role": "after", "compare": "static_seam", "seam": 0.50, "seam_verified": true, "order": 6 },
+    "39": { "kind": "task", "src": "04_After_Workspace_Domashnii_Ofic_Rabochaia_Zona.jpg", "file": "39_balcony_after_work.webp", "id": "balcony", "title": "Балкон и лоджия", "subtitle": "Уютный уголок, сад или офис", "role": "after", "compare": "static_seam", "seam": 0.50, "seam_verified": true, "order": 6 }
   }
 }
