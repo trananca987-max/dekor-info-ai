@@ -103,11 +103,26 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
         </button>
       </section>
 
-      {/* «Дом и участок» (Дополнение 1) — Карусель 5 задач со static_seam */}
+      {/* «Дом и участок» — Сетка кнопок 2×3 + карусель */}
       <section className="home-v3__section">
         <h2 className="home-v3__h2">Дом и участок</h2>
-        <p className="home-v3__sub">Фасад, сад, уборка и не только</p>
 
+        {/* Сетка кнопок-карточек для быстрого доступа */}
+        <div className="home-v3__jobs-grid">
+          {JOBS.map((job) => (
+            <JobQuickCard
+              key={job.id}
+              job={job}
+              onClick={() => {
+                haptic()
+                logEvent(user.telegram_id, 'job_quick_tap', { job_id: job.id })
+                navigate(`/task/${encodeURIComponent(job.id)}`)
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Карусель для свайпа (остаётся как была) */}
         <TasksCarousel
           userId={user.telegram_id}
           onSelect={(job) => {
@@ -128,6 +143,24 @@ export default function MainScreen({ user, onUserUpdate }: Props) {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// Быстрая карточка задачи для сетки 2×3 (компактная, без свитчера)
+function JobQuickCard({ job, onClick }: { job: Job; onClick: () => void }) {
+  const afterSrc = asset(job.after, 'card')
+
+  return (
+    <div className="job-quick-card" onClick={onClick} role="button" tabIndex={0}>
+      <div className="job-quick-card__frame">
+        <img src={afterSrc} alt={job.title} loading="lazy" className="job-quick-card__img" />
+        
+        {/* Подпись задачи на кадре */}
+        <div className="job-quick-card__plate">
+          <span className="job-quick-card__title">{job.title}</span>
+        </div>
+      </div>
     </div>
   )
 }

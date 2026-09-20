@@ -1510,6 +1510,59 @@ h2.card-t{font-size:16px;font-weight:600;color:var(--text)}
   margin-bottom: 6px;
 }
 
+/* Сетка 2×3 быстрых кнопок задач «Дом и участок» */
+.home-v3__jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.job-quick-card {
+  position: relative;
+  width: 100%;
+  border-radius: var(--r-card, 16px);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  outline: none;
+}
+
+.job-quick-card__frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  overflow: hidden;
+}
+
+.job-quick-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.job-quick-card__plate {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);
+}
+
+.job-quick-card__title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  line-height: 1.3;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
 .style-grid-card {
   position: relative;
   width: 100%;
