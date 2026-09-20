@@ -353,6 +353,42 @@ export const JOBS: Job[] = [
       },
     ],
   },
+  {
+    id: 'balcony',
+    title: 'Балкон и лоджия',
+    subtitle: 'Уютная зона для отдыха',
+    hint: 'Дизайн балкона: зона отдыха, растения, освещение',
+    order: 6,
+    before: '28_balcony_before',
+    after: '29_balcony_after',
+    compare: 'static_seam',
+    seam: 0.50,
+    seam_verified: false,
+    promptRef: 'Transform this balcony or loggia into a cozy functional space: add comfortable seating, greenery, warm lighting, neat flooring. Keep the structure and windows unchanged. Photorealistic interior.',
+    directions: [
+      {
+        id: 'balcony_cozy',
+        label: 'Уютный уголок',
+        before: '28_balcony_before',
+        after: '29_balcony_after',
+        promptRef: 'Cozy balcony corner: soft seating, cushions, warm throw, potted plants, string lights, wooden floor.',
+      },
+      {
+        id: 'balcony_green',
+        label: 'Зеленый оазис',
+        before: '28_balcony_before',
+        after: '29_balcony_after_green',
+        promptRef: 'Green balcony oasis: vertical garden, hanging plants, wood planters, natural materials, bright daylight.',
+      },
+      {
+        id: 'balcony_workspace',
+        label: 'Рабочее место',
+        before: '28_balcony_before',
+        after: '29_balcony_after_work',
+        promptRef: 'Balcony home office: compact desk, ergonomic chair, shelving, task lighting, minimalist organization.',
+      },
+    ],
+  },
 ];
 
 // Служебные ассеты

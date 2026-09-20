@@ -69,10 +69,14 @@ JOBS = {
                   "prompt": ("Replace the old furniture in this room with a modern matching furniture set. "
                              "Keep the room structure, floor and windows unchanged. Photorealistic.")},
     "facade": {"title": "Фасад дома",
-               "prompt": ("Renovate the facade of this house: fresh modern exterior finish, clean walls, updated "
-                          "windows and entrance, tidy surroundings. Keep the house shape and structure unchanged. Photorealistic.")},
+               "prompt": ("Renovate the facade of this house: fresh modern exterior finish, clean walls, "
+                          "updated windows and entrance, tidy surroundings. Keep the house shape and structure unchanged. Photorealistic.")},
+    "balcony": {"title": "Балкон и лоджия",
+                "prompt": ("Transform this balcony or loggia into a cozy functional space: "
+                           "add comfortable seating, greenery, warm lighting, neat flooring. "
+                           "Keep the structure and windows unchanged. Photorealistic interior.")},
 }
-JOB_ORDER = ["declutter", "garden", "repaint", "furniture", "facade"]
+JOB_ORDER = ["declutter", "garden", "repaint", "furniture", "facade", "balcony"]
 
 # Направления внутри «Сада и участка» (§2)
 GARDEN_DIRECTIONS = {
